@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+# built from /pages by scripts/build-images.mjs (runs on every build)
+public/generated
+src/generated
+.vercel

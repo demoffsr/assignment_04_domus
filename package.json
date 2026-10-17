@@ -1,0 +1,20 @@
+{
+  "name": "deliberation-leporello",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "images": "node scripts/build-images.mjs",
+    "dev": "node scripts/build-images.mjs && vite",
+    "build": "node scripts/build-images.mjs && vite build",
+    "preview": "vite preview",
+    "placeholders": "node scripts/make-placeholders.mjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.33.5",
+    "vite": "^5.4.11"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  }
+}

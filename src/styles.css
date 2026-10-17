@@ -1,0 +1,318 @@
+:root {
+  --bg: #000;
+  --fg: #f2f2f2;
+  --dim: rgba(242, 242, 242, 0.46);
+  --faint: rgba(242, 242, 242, 0.14);
+  /* Accents from the cover — adjust to match exactly. */
+  --blue: #2f5bff;
+  --pink: #ff4fb0;
+  --ease: cubic-bezier(0.65, 0, 0.35, 1);
+  --top: 64px;
+  --bottom: 56px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 13px/1.35 Inter, ui-sans-serif, system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  letter-spacing: 0.005em;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Graphite light behind the pages so black sheets don't merge with the page. */
+body {
+  background:
+    radial-gradient(55% 45% at 18% 28%, rgba(47, 91, 255, 0.10), transparent 70%),
+    radial-gradient(50% 45% at 85% 80%, rgba(255, 79, 176, 0.07), transparent 70%),
+    radial-gradient(110% 85% at 50% 48%, #2a2a2f 0%, #18181b 48%, #070708 100%);
+  background-attachment: fixed;
+}
+body { display: grid; grid-template-rows: var(--top) 1fr var(--bottom); height: 100dvh; }
+body.no-scroll { touch-action: none; }
+
+button, a { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled { opacity: 0.25; cursor: default; }
+.dim { color: var(--dim); }
+
+:focus { outline: none; }
+:focus-visible {
+  outline: 1.5px solid var(--blue);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+.skip {
+  position: fixed; left: 12px; top: -60px; z-index: 50;
+  padding: 8px 12px; background: var(--fg); color: #000; border-radius: 999px; text-decoration: none;
+  transition: transform 0.2s var(--ease);
+}
+.skip:focus-visible { transform: translateY(72px); }
+
+/* ── Header ──────────────────────────────────────────────── */
+.top {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 0 clamp(16px, 3vw, 32px);
+  position: relative;
+  z-index: 5;
+}
+.credits h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.credits p { margin: 2px 0 0; display: flex; gap: 10px; flex-wrap: wrap; }
+
+.modes { display: flex; gap: 2px; padding: 3px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--faint); }
+.modes button {
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--dim);
+  transition: color 0.25s, background-color 0.25s;
+}
+.modes button:hover { color: var(--fg); }
+.modes button[aria-pressed='true'] { color: var(--fg); background: rgba(255, 255, 255, 0.08); }
+
+.settings { justify-self: end; position: relative; }
+.settings-btn { color: var(--dim); padding: 6px 2px; transition: color 0.2s; }
+.settings-btn:hover, .settings-btn[aria-expanded='true'] { color: var(--fg); }
+.settings-panel {
+  position: absolute; right: 0; top: calc(100% + 8px);
+  display: grid; gap: 10px; padding: 14px 16px;
+  min-width: 210px;
+  background: rgba(14, 14, 14, 0.96);
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--faint), 0 20px 40px rgba(0, 0, 0, 0.6);
+}
+.settings-panel label { display: flex; align-items: center; gap: 10px; cursor: pointer; white-space: nowrap; }
+.settings-panel input { accent-color: var(--blue); margin: 0; }
+.settings-panel label:has(input:disabled) { color: var(--dim); cursor: default; }
+
+/* ── Stage & views ───────────────────────────────────────── */
+.stage { position: relative; min-height: 0; }
+.view {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+}
+.view.active { opacity: 1; }
+
+/* ── Paper panel (shared) ────────────────────────────────── */
+.panel {
+  position: absolute; left: 0; top: 0;
+  width: var(--pw); height: var(--ph);
+  transform-origin: 0 50%;
+  transform-style: preserve-3d;
+  cursor: pointer;
+}
+.face {
+  position: absolute; inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+  background: #e9e9e6;
+}
+/* Overlap neighbours by a hair so anti-aliased edges never open a seam. */
+.front { left: -0.5px; right: -0.5px; }
+.back { transform: rotateY(180deg); }
+/* Floor shadow: rotated flat onto the floor, centred on the bottom edge.
+   Half of it sits behind the sheet, half spills towards the viewer. */
+.cast {
+  position: absolute; left: 0; right: 0;
+  top: calc(100% - var(--ph) * 0.35);
+  height: calc(var(--ph) * 0.7);
+  transform: rotateX(90deg);
+  background:
+    linear-gradient(to bottom, transparent 30%, rgba(0, 0, 0, 0.35) 44%, rgba(0, 0, 0, 0.85) 50%, rgba(0, 0, 0, 0.3) 56%, transparent 85%);
+  pointer-events: none;
+}
+.panel:first-child .cast { -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%); mask-image: linear-gradient(90deg, transparent, #000 18%); }
+.panel:last-child .cast { -webkit-mask-image: linear-gradient(270deg, transparent, #000 18%); mask-image: linear-gradient(270deg, transparent, #000 18%); }
+.face picture, .face img, .face .vector {
+  position: absolute; inset: 0;
+  display: block; width: 100%; height: 100%;
+}
+.face img { opacity: 0; transition: opacity 0.35s ease; user-select: none; -webkit-user-drag: none; }
+.face img.loaded { opacity: 1; }
+.shade { position: absolute; inset: 0; pointer-events: none; }
+.shade { background: #000; opacity: 0; }
+/* Fold lines. Each edge has a valley (shadow) and a ridge (light catching the
+   crease). Opacity is driven from JS by the fold angle. The right edge is
+   mirrored, so both gradients are written from the edge inwards. */
+.edge { position: absolute; top: 0; bottom: 0; width: 16%; pointer-events: none; }
+.edge.l { left: 0; }
+.edge.r { right: 0; transform: scaleX(-1); }
+.valley, .ridge { position: absolute; inset: 0; opacity: 0; }
+.valley {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.16) 0, rgba(255, 255, 255, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.22) 22%, transparent 100%);
+}
+.ridge {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.42) 0, rgba(255, 255, 255, 0.42) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05), transparent 35%);
+}
+
+/* ── Leporello: folded / unfolded ────────────────────────── */
+.view-lep { align-items: center; }
+.lep {
+  position: relative;
+  flex: 1; width: 100%;
+  overflow: hidden;
+  perspective-origin: 50% 45%;
+  touch-action: pan-y;
+  scrollbar-width: none;
+}
+.lep::-webkit-scrollbar { display: none; }
+.lep.open:not(.animating) { overflow-x: auto; overflow-y: hidden; touch-action: pan-x; cursor: grab; }
+.lep.dragging { cursor: grabbing; }
+.lep.dragging .panel { cursor: grabbing; }
+.lep-track { height: 1px; display: flex; pointer-events: none; }
+.lep-track span { flex: none; height: 1px; scroll-snap-align: start; }
+.lep-ambient {
+  position: absolute; left: 0; top: 0;
+  transform-origin: 0 0;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0.4) 50%, transparent);
+  pointer-events: none;
+}
+/* Faint rim on the closed stack, so black outer pages don't melt into the background. */
+.lep:not(.open) .face { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09); }
+.lep-cam, .lep-group { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
+.lep:not(.open) { cursor: pointer; }
+.lep:not(.open) .panel { cursor: inherit; }
+.lep-floor {
+  position: absolute; left: 50%; top: 70%;
+  width: min(1400px, 130vw); height: 46vh;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.03) 45%, transparent);
+  pointer-events: none;
+}
+
+.unfold-btn { margin: 0 0 6px; }
+
+/* ── Page by page ────────────────────────────────────────── */
+.pv {
+  position: relative;
+  flex: 1; min-height: 0;
+  margin: 8px 0 0;
+  touch-action: pan-y;
+  user-select: none;
+}
+.pv-scene { position: absolute; left: 50%; top: 50%; transform-style: preserve-3d; }
+.pv .panel { top: calc(var(--ph) / -2); }
+.pv.dragging, .pv.dragging .panel { cursor: grabbing; }
+
+.pv-nav { display: flex; align-items: center; justify-content: center; gap: 20px; padding: 10px 0 6px; }
+.counter { margin: 0; min-width: 120px; text-align: center; font-variant-numeric: tabular-nums; }
+.arrow {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center;
+  box-shadow: inset 0 0 0 1px var(--faint);
+  transition: box-shadow 0.2s, color 0.2s;
+}
+.arrow:not(:disabled):hover { box-shadow: inset 0 0 0 1px var(--fg); }
+
+.thumbs {
+  display: flex; align-items: center; gap: 6px;
+  overflow-x: auto;
+  padding: 6px max(16px, calc(50% - 40px)) 4px;
+  scrollbar-width: none;
+}
+.thumbs::-webkit-scrollbar { display: none; }
+.thumb {
+  flex: none; position: relative;
+  width: 30px; aspect-ratio: 148 / 210;
+  border-radius: 2px; overflow: hidden;
+  background: #1a1a1a;
+  opacity: 0.4;
+  transition: opacity 0.25s, transform 0.25s var(--ease);
+}
+.thumb img { display: block; width: 100%; height: 100%; opacity: 0; transition: opacity 0.3s; }
+.thumb img.loaded { opacity: 1; }
+.thumb:hover { opacity: 0.8; }
+.thumb[aria-selected='true'] { opacity: 1; transform: translateY(-3px); }
+.thumb[aria-selected='true']::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--blue);
+}
+.thumb-section {
+  flex: none; margin: 0 4px 0 10px;
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim);
+  writing-mode: vertical-rl; transform: rotate(180deg);
+}
+
+/* ── Footer ──────────────────────────────────────────────── */
+.bottom {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 0 clamp(16px, 3vw, 32px);
+}
+.hint { margin: 0; font-size: 12px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--faint);
+  text-decoration: none;
+  transition: box-shadow 0.25s;
+}
+.pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--pink); }
+.unfold-btn::before { background: var(--blue); }
+.pill:hover { box-shadow: inset 0 0 0 1px var(--fg); }
+
+/* ── Zoom ────────────────────────────────────────────────── */
+.zoom {
+  position: fixed; inset: 0; z-index: 20;
+  background: radial-gradient(100% 80% at 50% 45%, rgba(44, 44, 50, 0.97), rgba(10, 10, 12, 0.98));
+  display: flex; flex-direction: column;
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+.zoom.visible { opacity: 1; }
+.zoom-canvas {
+  position: relative; flex: 1; overflow: hidden;
+  display: grid; place-items: center;
+  touch-action: none;
+  cursor: zoom-in;
+}
+.zoom.zoomed .zoom-canvas { cursor: grab; }
+.zoom-frame { position: relative; transform-origin: 50% 50%; background: #e9e9e6; }
+.zoom-frame.moving { will-change: transform; }
+.zoom-frame img, .zoom-frame canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  user-select: none; -webkit-user-drag: none;
+}
+.zoom-full { opacity: 0; transition: opacity 0.3s; }
+.zoom-full.loaded { opacity: 1; }
+.zoom-bar {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 12px clamp(16px, 3vw, 32px) max(12px, env(safe-area-inset-bottom));
+}
+.zoom-bar span { margin-right: auto; }
+.zoom-bar button {
+  min-width: 34px; height: 34px; padding: 0 12px; border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+.zoom-bar button:hover { box-shadow: inset 0 0 0 1px var(--fg); }
+
+/* ── Mobile ──────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  :root { --top: 92px; --bottom: 52px; }
+  .top { grid-template-columns: 1fr auto; grid-template-rows: auto auto; row-gap: 10px; padding-top: 10px; }
+  .modes { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  .modes button { padding: 6px 10px; }
+  .lep.open:not(.animating) { scroll-snap-type: x mandatory; }
+  .hint { display: none; }
+  .bottom { justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view, .thumb, .modes button { transition-duration: 0.01s; }
+}
