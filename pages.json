@@ -76,77 +76,91 @@
   },
   {
     "index": 14,
-    "title": "Page 14",
-    "section": ""
+    "title": "Accent",
+    "section": "Vocabulary",
+    "alt": "Accent — title card"
   },
   {
     "index": 15,
-    "title": "Page 15",
-    "section": ""
+    "title": "Accent",
+    "section": "Vocabulary",
+    "alt": "Accent — etymology and meaning"
   },
   {
     "index": 16,
-    "title": "Page 16",
-    "section": ""
+    "title": "Function",
+    "section": "Vocabulary",
+    "alt": "Function — title card"
   },
   {
     "index": 17,
-    "title": "Page 17",
-    "section": ""
+    "title": "Function",
+    "section": "Vocabulary",
+    "alt": "Function — etymology and meaning"
   },
   {
     "index": 18,
-    "title": "Page 18",
-    "section": ""
+    "title": "My words × AI’s words",
+    "section": "Vocabulary"
   },
   {
     "index": 19,
-    "title": "Page 19",
-    "section": ""
+    "title": "Macintosh 128K",
+    "section": "Artifacts"
   },
   {
     "index": 20,
-    "title": "Page 20",
-    "section": ""
+    "title": "Macintosh 128K",
+    "section": "Artifacts"
   },
   {
     "index": 21,
-    "title": "Page 21",
-    "section": ""
+    "title": "Lamy 2000",
+    "section": "Artifacts"
   },
   {
     "index": 22,
-    "title": "Page 22",
-    "section": ""
+    "title": "Lamy 2000",
+    "section": "Artifacts"
   },
   {
     "index": 23,
-    "title": "Page 23",
-    "section": ""
+    "title": "Braun ET66",
+    "section": "Artifacts"
   },
   {
     "index": 24,
-    "title": "Page 24",
-    "section": ""
+    "title": "Braun ET66",
+    "section": "Artifacts"
   },
   {
     "index": 25,
-    "title": "Page 25",
-    "section": ""
+    "title": "The Macintosh team",
+    "section": "Makers"
   },
   {
     "index": 26,
-    "title": "Page 26",
-    "section": ""
+    "title": "Gerd A. Müller",
+    "section": "Makers"
   },
   {
     "index": 27,
-    "title": "Page 27",
-    "section": ""
+    "title": "Dietrich Lubs & Dieter Rams",
+    "section": "Makers"
   },
   {
     "index": 28,
-    "title": "Page 28",
+    "title": "Dietrich Lubs & Dieter Rams",
+    "section": "Makers"
+  },
+  {
+    "index": 29,
+    "title": "Mario Bellini",
+    "section": "Makers"
+  },
+  {
+    "index": 30,
+    "title": "Back cover",
     "section": ""
   }
 ]
