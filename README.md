@@ -1,8 +1,10 @@
-# Deliberation — leporello
+# Tubus
 
-A single-page site that presents the booklet *Deliberation* (Dmitrii Demidov, Domus Academy, 2026) as an accordion-fold leporello.
+Tubus is a single-page site that presents a library of accordion-fold leporello booklets. The home page shows the closed books side by side; click one and it comes forward, with the interface appearing around it. *Tubus* in the header (or Esc) goes back.
 
-Three modes: **Folded** (a closed stack), **Unfolded** (the accordion opens in a zigzag into a horizontal strip) and **Page by page** (one page at a time; the next panel folds over). Vite + vanilla JS. The only runtime dependency is PDF.js, which loads only when vector mode is switched on.
+Books so far: *Deliberation* (A04 · Folding Ideas) and a placeholder *Book Two*.
+
+Each book has three modes: **Folded** (a closed stack), **Unfolded** (the accordion opens in a zigzag into a horizontal strip) and **Page by page** (one page at a time; the next panel folds over). Vite + vanilla JS. The only runtime dependency is PDF.js, which loads only when vector mode is switched on.
 
 ## Run locally
 
@@ -15,22 +17,27 @@ npm run preview    # serve dist/ locally
 
 Requires Node 18+.
 
-## Replace / add pages
+## Add a book to the library
 
-1. Put the Figma exports in `/pages` as `01.png`, `02.png`, … (any count, in reading order). 4x A5 exports (1680×2380) are expected. Larger files work too: the original size is added to the srcset automatically.
-2. Put the PDF in `/pages/DmitriiDemidovA05.pdf`. This turns on the **Download PDF** button and the optional vector mode.
-3. Edit `pages.json`: one entry per page, matched by `index` (1-based):
+1. Add an entry to `books.json` (order = order on the shelf):
+   ```json
+   { "id": "my-book", "title": "My Book", "author": "Dmitrii Demidov", "meta": "A08 · Title of the project", "pdf": "MyBook.pdf" }
+   ```
+   `pdf` is optional (`null` or leave the file out to turn off *Download PDF* and vector mode for that book).
+2. Put the Figma exports in `pages/<id>/` as `01.png`, `02.png`, … (any count, in reading order). A5 portrait exports (1680×2380) are expected. Larger files work too: the original size is added to the srcset automatically. The first page is the cover shown in the library.
+3. Put the PDF in the same folder (`pages/<id>/MyBook.pdf`).
+4. Add `pages/<id>/pages.json`: one entry per page, matched by `index` (1-based):
    ```json
    { "index": 5, "title": "Integrity", "section": "Vocabulary", "alt": "optional longer alt text" }
    ```
-   `title` is used as the alt text, thumbnail label and zoom label (`alt` overrides the alt text). `section` is one of `Vocabulary`, `Artifacts`, `Makers`. It labels the counter and groups the thumbnails.
-4. If `npm run dev` is already running, it notices changes in `/pages`, re-encodes only the changed files and reloads the browser. It takes about 4 s per new page, and progress shows in the terminal. Otherwise run `npm run dev` or `npm run build`.
+   `title` is used as the alt text, thumbnail label and zoom label (`alt` overrides the alt text). `section` labels the counter and groups the thumbnails.
+5. If `npm run dev` is already running, it notices changes in `/pages` and `books.json`, re-encodes only the changed files and reloads the browser. It takes about 4 s per new page. Otherwise run `npm run dev` or `npm run build`.
 
-> The repo currently has **generated placeholder pages** (`npm run placeholders` creates them only if `/pages` is empty). Dropping in your real `01.png … 22.png` overwrites them.
+> *Book Two* currently uses **generated placeholder pages**. Drop the real `01.png …` into `pages/book-two/` over them (or `npm run placeholders -- <id> "<Title>" <count>` makes new placeholders for another book), and edit its entry in `books.json`.
 
 ### What the image build does
 
-For each page it writes to `public/generated/`:
+For each page of each book it writes to `public/generated/`:
 
 - AVIF, WebP and PNG at **420, 840 and 1680 px** wide. Nothing is ever upscaled: widths above the source are skipped.
 - An untouched copy of the original for the zoom view.
@@ -50,7 +57,7 @@ The output is fully static (`dist/`).
 - **Netlify**: import the repo. `netlify.toml` sets `npm run build` → `dist`.
 - Anything else: `npm run build` and upload `dist/`.
 
-`public/generated/` and `src/generated/` are not committed: every deploy rebuilds them from `/pages` (about 1–2 min for 28 pages).
+`public/generated/` and `src/generated/` are not committed: every deploy rebuilds them from `/pages` (about 1–2 min per 30 pages).
 
 ## Customise
 
@@ -60,11 +67,12 @@ The output is fully static (`dist/`).
 ## Structure
 
 ```
-pages/                 source PNGs + PDF (you edit these)
-pages.json             titles / sections / alt (you edit this)
+books.json             the library: one entry per book (you edit this)
+pages/<id>/            a book's source PNGs + PDF + pages.json (titles / sections / alt)
 scripts/build-images.mjs
 src/
-  main.js              modes, settings, keyboard, thumbnails, URL hash
+  main.js              library, routing, header / settings
+  book.js              one book: leporello, page-by-page view + thumbnails, zoom, keyboard
   leporello.js         folded ↔ unfolded 3D scene
   pageview.js          page-by-page fold view
   panel.js             paper panel, fold shading, chain geometry, tweening
@@ -73,4 +81,4 @@ src/
   images.js            <picture>/srcset helpers
 ```
 
-Animations use only `transform` and `opacity`. With `prefers-reduced-motion`, every fold becomes a short fade. Deep links work too: `#folded`, `#unfolded`, `#page-5`.
+Animations use only `transform` and `opacity`. With `prefers-reduced-motion`, every fold becomes a short fade. Deep links work too: `#<id>/folded`, `#<id>/unfolded`, `#<id>/page-5`; no hash is the library. Old links (`#unfolded`, `#page-5`) open the first book.

@@ -1,16 +1,27 @@
 import manifest from './generated/manifest.json';
-import titles from '../pages.json';
+import library from '../books.json';
 
 export const ASPECT = 148 / 210; // A5 portrait, width / height
 
-// Merge build manifest with the editable titles in pages.json (matched by index).
-export const pages = manifest.pages.map((img, i) => {
-  const meta = titles.find((t) => t.index === i + 1) || {};
-  const title = meta.title || `Page ${i + 1}`;
-  return { ...img, index: i, title, section: meta.section || '', alt: meta.alt || title };
-});
+// Editable titles live next to each book's pages: /pages/<id>/pages.json.
+const titles = import.meta.glob('../pages/*/pages.json', { eager: true, import: 'default' });
 
-export const pdfUrl = manifest.pdf;
+/**
+ * Books from books.json that the image build produced pages for. Each page
+ * merges the build manifest with its entry in pages.json (matched by index).
+ */
+export const books = library
+  .filter((b) => manifest.books[b.id])
+  .map((b) => {
+    const built = manifest.books[b.id];
+    const meta = titles[`../pages/${b.id}/pages.json`] || [];
+    const pages = built.pages.map((img, i) => {
+      const m = meta.find((t) => t.index === i + 1) || {};
+      const title = m.title || `Page ${i + 1}`;
+      return { ...img, index: i, title, section: m.section || '', alt: m.alt || title };
+    });
+    return { ...b, pdfUrl: built.pdf, pages };
+  });
 
 const srcset = (list) => list.map((v) => `${v.src} ${v.w}w`).join(', ');
 

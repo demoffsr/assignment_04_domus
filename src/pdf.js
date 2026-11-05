@@ -1,17 +1,17 @@
 // Optional vector rendering through PDF.js. Loaded only when the setting is on.
-let docPromise = null;
+const docs = new Map(); // url → document promise, one per book
 const MAX_PIXELS = 16e6; // stay under mobile canvas limits
 
 async function load(url) {
-  if (!docPromise) {
-    docPromise = (async () => {
+  if (!docs.has(url)) {
+    docs.set(url, (async () => {
       const pdfjs = await import('pdfjs-dist');
       const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
       pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
       return pdfjs.getDocument({ url }).promise;
-    })();
+    })());
   }
-  return docPromise;
+  return docs.get(url);
 }
 
 export async function pageCount(url) {
@@ -31,18 +31,19 @@ export async function renderPage(url, index, cssWidth) {
   if (area > MAX_PIXELS) scale *= Math.sqrt(MAX_PIXELS / area);
   const viewport = page.getViewport({ scale });
 
-  pending.get(index)?.cancel();
+  const key = `${url}#${index}`;
+  pending.get(key)?.cancel();
   const canvas = document.createElement('canvas');
   canvas.width = Math.floor(viewport.width);
   canvas.height = Math.floor(viewport.height);
   const task = page.render({ canvasContext: canvas.getContext('2d', { alpha: false }), viewport });
-  pending.set(index, task);
+  pending.set(key, task);
   try {
     await task.promise;
   } catch {
     return null; // cancelled by a newer render
   } finally {
-    if (pending.get(index) === task) pending.delete(index);
+    if (pending.get(key) === task) pending.delete(key);
   }
   return canvas;
 }

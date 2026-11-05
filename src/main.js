@@ -1,8 +1,7 @@
 import './styles.css';
-import { pages, pdfUrl, createPicture, hydrate } from './images.js';
-import { createPageView } from './pageview.js';
-import { createLeporello } from './leporello.js';
-import { createZoom } from './zoom.js';
+import { books } from './images.js';
+import { createBook } from './book.js';
+import { sheetSize } from './leporello.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -24,237 +23,241 @@ const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
 const reducedMotion = () => motionQuery.matches;
 const mobile = () => matchMedia('(max-width: 700px)').matches;
 
-let mode = null;
-let current = 0; // page index shared by all modes
-const vectorOn = () => $('#opt-vector').checked && !!pdfUrl;
-
-// --- Views ----------------------------------------------------------------
-const lepView = $('.view-lep');
-const pagesView = $('.view-pages');
-const unfoldBtn = $('[data-unfold]');
+const stage = $('#stage');
 const hint = $('[data-hint]');
+const vector = $('#opt-vector');
+const zigzag = $('#opt-zigzag');
+const modeButtons = $$('.modes [data-mode]');
+let vectorPref = prefs.get('vector', false);
 
-const zoom = createZoom($('[data-zoom]'), pages, {
-  vector: vectorOn,
-  renderVector: (i, w) => import('./pdf.js').then((m) => m.renderPage(pdfUrl, i, w)),
-  onNavigate: (d) => {
-    const i = Math.min(pages.length - 1, Math.max(0, zoom.index + d));
-    zoom.show(i);
-    setCurrent(i);
-    if (mode === 'pages') pv.goTo(i, { instant: true });
-  },
+// --- Books -----------------------------------------------------------------
+const shelf = books.map((data) =>
+  createBook(data, {
+    stage,
+    bookTpl: $('#book-tpl'),
+    zoomTpl: $('#zoom-tpl'),
+    reducedMotion,
+    mobile,
+    vectorChecked: () => vector.checked,
+    setHint: (t) => (hint.textContent = t),
+    onMode: (m) => {
+      document.body.dataset.mode = m;
+      modeButtons.forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === m));
+    },
+    replaceHash: (h) => {
+      history.replaceState(null, '', `#${h}`);
+      lastHash = `#${h}`;
+    },
+  }),
+);
+let active = null; // the open book; null = the library
+let lastHash = null; // the hash applyRoute last acted on (popstate and hashchange both fire for one navigation)
+let routeToken = 0; // a newer route cancels a library exit that is still folding
+
+// --- Library: the books stand side by side, a click brings one forward ------
+const GAP = 1.35; // distance between book centres, in book widths
+const hits = shelf.map((book) => {
+  const hit = document.createElement('button');
+  hit.type = 'button';
+  hit.className = 'lib-hit';
+  hit.setAttribute('aria-label', `Open ${book.data.title}`);
+  hit.innerHTML = '<span class="lib-label"><strong></strong><span class="dim"></span></span>';
+  $('strong', hit).textContent = book.data.title;
+  $('.dim', hit).textContent = book.data.meta || '';
+  hit.addEventListener('click', () => navigate(`${book.id}/folded`));
+  const lift = (on) => () => book.el.classList.toggle('hover', on);
+  hit.addEventListener('pointerenter', lift(true));
+  hit.addEventListener('pointerleave', lift(false));
+  hit.addEventListener('focus', lift(true));
+  hit.addEventListener('blur', lift(false));
+  $('[data-library]').append(hit);
+  return hit;
 });
 
-const pv = createPageView($('[data-pv]'), pages, {
-  reducedMotion,
-  onOpen: (i) => zoom.open(i),
-  onChange: (i) => setCurrent(i),
-});
-
-const lep = createLeporello($('[data-lep]'), pages, {
-  reducedMotion,
-  onOpen: (i) => zoom.open(i),
-  onIndex: (i) => setCurrent(i),
-});
-lep.onUnfoldRequest(() => setMode('unfolded'));
-
-// --- Page-by-page chrome: counter, arrows, thumbnails ---------------------
-const counter = $('[data-counter]');
-const sectionLabel = $('[data-section]');
-const thumbs = $('[data-thumbs]');
-
-const thumbButtons = pages.map((page, i) => {
-  if (page.section && page.section !== pages[i - 1]?.section) {
-    const label = document.createElement('span');
-    label.className = 'thumb-section';
-    label.textContent = page.section;
-    thumbs.append(label);
-  }
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'thumb';
-  b.setAttribute('role', 'tab');
-  b.setAttribute('aria-label', `${i + 1}. ${page.title}`);
-  b.title = page.title;
-  b.append(createPicture(page, { sizes: '44px' }));
-  b.addEventListener('click', () => pv.goTo(i));
-  thumbs.append(b);
-  return b;
-});
-const thumbIO = new IntersectionObserver((entries) => {
-  entries.forEach((e) => e.isIntersecting && hydrate(e.target.querySelector('picture')));
-}, { root: thumbs, rootMargin: '0px 200px' });
-thumbButtons.forEach((b) => thumbIO.observe(b));
-
-function setCurrent(i) {
-  current = i;
-  const page = pages[i];
-  counter.textContent = `${i + 1} / ${pages.length}`;
-  sectionLabel.textContent = page.section ? `${page.section} ·` : '';
-  thumbButtons.forEach((b, k) => {
-    const on = k === i;
-    b.setAttribute('aria-selected', on);
-    b.tabIndex = on ? 0 : -1;
+/** Sets where each closed book stands (and where its click target is). Pure maths, no layout is animated. */
+function layoutLibrary() {
+  const lepRoot = $('[data-lep]', shelf[0].el);
+  const vw = lepRoot.clientWidth;
+  const vh = lepRoot.clientHeight;
+  if (!vw) return;
+  const { w, h } = sheetSize(vw, vh);
+  const n = shelf.length;
+  const s = Math.min(0.62, (stage.clientWidth * 0.9) / (w * (GAP * (n - 1) + 1)));
+  const lift = -18; // leaves room for the label under the books
+  const centreY = (vh - stage.clientHeight) / 2; // book centre relative to the stage centre, unscaled
+  shelf.forEach((book, i) => {
+    const x = (i - (n - 1) / 2) * w * s * GAP;
+    book.el.style.setProperty('--lx', `${x}px`);
+    book.el.style.setProperty('--ly', `${lift}px`);
+    book.el.style.setProperty('--ls', s);
+    hits[i].style.setProperty('--hx', `${x}px`);
+    hits[i].style.setProperty('--hy', `${centreY * s + lift}px`);
+    hits[i].style.setProperty('--hw', `${w * s * 1.1}px`);
+    hits[i].style.setProperty('--hh', `${h * s}px`);
   });
-  if (mode === 'pages') {
-    const b = thumbButtons[i];
-    thumbs.scrollTo({ left: b.offsetLeft - thumbs.clientWidth / 2 + b.offsetWidth / 2, behavior: reducedMotion() ? 'auto' : 'smooth' });
-    $('[data-prev]').disabled = i === 0;
-    $('[data-next]').disabled = i === pages.length - 1;
-    history.replaceState(null, '', `#page-${i + 1}`);
-    scheduleVector();
+}
+new ResizeObserver(layoutLibrary).observe(stage);
+layoutLibrary();
+
+// --- Header / footer follow the open book -----------------------------------
+const titleEl = $('[data-title]');
+const authorEl = $('[data-author]');
+const metaEl = $('[data-meta]');
+const download = $('[data-download]');
+$('[data-count]').textContent = `${shelf.length} leporellos`;
+
+function renderChrome() {
+  const data = active?.data;
+  titleEl.textContent = data ? data.title : 'Tubus';
+  authorEl.textContent = data?.author || '';
+  metaEl.textContent = data?.meta || '';
+  document.title = data ? `${data.title} — ${data.author}` : 'Tubus — Dmitrii Demidov';
+
+  download.hidden = !data?.pdfUrl;
+  if (data?.pdfUrl) download.href = data.pdfUrl;
+
+  const hasPdf = !!data?.pdfUrl;
+  vector.disabled = !hasPdf;
+  vector.parentElement.title = hasPdf ? '' : 'Add the PDF to this book\'s folder in /pages to enable';
+  vector.checked = hasPdf && vectorPref;
+
+  if (!active) {
+    hint.textContent = mobile() ? 'Tap a book to open' : 'Click a book to open';
+    modeButtons.forEach((b) => b.setAttribute('aria-pressed', 'false'));
+    delete document.body.dataset.mode;
   }
 }
 
-$('[data-prev]').addEventListener('click', () => pv.prev());
-$('[data-next]').addEventListener('click', () => pv.next());
-
-// --- Vector (PDF.js) overlay for the focused page --------------------------
-let vecTimer = 0;
-function scheduleVector() {
-  clearTimeout(vecTimer);
-  if (!vectorOn() || mode !== 'pages') return;
-  vecTimer = setTimeout(async () => {
-    const panel = pv.focusPanel();
-    const i = +panel.el.dataset.index;
-    const { renderPage } = await import('./pdf.js');
-    const canvas = await renderPage(pdfUrl, i, pv.width);
-    if (!canvas || !vectorOn() || i !== current) return;
-    canvas.className = 'vector';
-    const front = panel.el.querySelector('.front');
-    front.querySelector('.vector')?.remove();
-    front.insertBefore(canvas, front.querySelector('.edge'));
-  }, 400);
-}
-function clearVector() {
-  $$('.panel .vector').forEach((c) => c.remove());
+// --- Routing: #<book>/folded · #<book>/unfolded · #<book>/page-N · (empty = library)
+function parseHash() {
+  const raw = location.hash.slice(1);
+  if (!raw) return null;
+  const parts = raw.split('/');
+  let book = shelf.find((b) => b.id === parts[0]);
+  const rest = book ? parts[1] : raw; // old links (#page-5, #unfolded) belong to the first book
+  const page = (rest || '').match(/^page-(\d+)$/);
+  if (!book && !page && rest !== 'folded' && rest !== 'unfolded') return null;
+  book ||= shelf[0];
+  if (page) return { book, mode: 'pages', page: +page[1] - 1 };
+  return { book, mode: rest === 'unfolded' ? 'unfolded' : 'folded' };
 }
 
-// --- Modes ----------------------------------------------------------------
-function show(view) {
-  for (const v of [lepView, pagesView]) {
-    const on = v === view;
-    if (on) v.hidden = false;
-    v.classList.toggle('active', on);
-    v.inert = !on;
-    if (!on) setTimeout(() => !v.classList.contains('active') && (v.hidden = true), 400);
-  }
+let zoomTimer = 0;
+function travel() {
+  document.body.classList.add('zooming');
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(() => document.body.classList.remove('zooming'), 1000);
 }
 
-function setMode(next, { instant = false } = {}) {
-  if (next === mode) return;
-  const prev = mode;
-  mode = next;
-  document.body.dataset.mode = next;
-  $$('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === next));
+/** Closes an open strip first, then lets the library take over. */
+async function showLibrary(token) {
+  if (!active) return;
+  const leaving = active;
+  leaving.el.inert = true; // no clicks while it closes
+  await leaving.foldAway();
+  if (token !== routeToken || active !== leaving) return;
+  active = null;
+  travel();
+  document.body.dataset.view = 'library';
+  shelf.forEach((b) => {
+    b.el.classList.remove('current');
+    b.el.inert = true;
+  });
+  leaving.close();
+  renderChrome();
+}
 
-  if (next === 'pages') {
-    show(pagesView);
-    clearVector();
-    requestAnimationFrame(() => {
-      pv.measure();
-      pv.goTo(current, { instant: true });
-      setCurrent(current);
+function openBook(route) {
+  const { book } = route;
+  book.el.inert = false; // may still be locked by a library exit that this route cancels
+  if (active !== book) {
+    const from = active;
+    from?.close();
+    active = book;
+    travel();
+    document.body.dataset.view = 'book';
+    shelf.forEach((b) => {
+      b.el.classList.toggle('current', b === book);
+      b.el.inert = b !== book;
     });
-    hint.textContent = mobile() ? 'Swipe to turn · tap to zoom' : '← → to turn · click to zoom';
-    return;
+    renderChrome();
+    if (vector.checked) book.verifyVector();
   }
-
-  show(lepView);
-  history.replaceState(null, '', `#${next}`);
-  if (next === 'folded') {
-    unfoldBtn.textContent = 'Unfold';
-    lep.fold(instant || prev !== 'unfolded');
-    hint.textContent = mobile() ? 'Tap to unfold' : 'Click to unfold';
-    return;
-  }
-  // unfolded
-  const fromStack = prev === 'folded' && !instant;
-  requestAnimationFrame(() => {
-    lep.measure();
-    lep.unfold(!fromStack);
-    if (!fromStack) lep.scrollToIndex(current);
-  });
-  unfoldBtn.textContent = 'Fold';
-  hint.textContent = mobile() ? 'Swipe the strip · tap a page to zoom' : 'Scroll or drag · click a page to zoom';
+  if (route.page != null) book.goTo(route.page);
+  book.setMode(route.mode, { instant: true });
 }
 
-$$('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
-unfoldBtn.addEventListener('click', () => setMode(mode === 'unfolded' ? 'folded' : 'unfolded'));
+function applyRoute() {
+  if (location.hash === lastHash) return;
+  lastHash = location.hash;
+  const token = ++routeToken;
+  const route = parseHash();
+  if (route) openBook(route);
+  else showLibrary(token);
+}
+
+function navigate(hash) {
+  if (location.hash === (hash ? `#${hash}` : '')) return;
+  history.pushState(null, '', hash ? `#${hash}` : location.pathname + location.search);
+  applyRoute();
+}
+
+addEventListener('hashchange', applyRoute);
+addEventListener('popstate', applyRoute);
+$('[data-back]').addEventListener('click', () => navigate(''));
+
+// --- Mode buttons ---------------------------------------------------------------
+modeButtons.forEach((b) => b.addEventListener('click', () => active && !active.el.inert && active.setMode(b.dataset.mode)));
 
 // --- Keyboard ---------------------------------------------------------------
 addEventListener('keydown', (e) => {
-  if (zoom.isOpen || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (!active || active.zoomOpen || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.closest('input, textarea, select')) return;
-  if (mode === 'pages') {
-    const map = { ArrowRight: () => pv.next(), ArrowLeft: () => pv.prev(), Home: () => pv.goTo(0), End: () => pv.goTo(pages.length - 1) };
-    if (map[e.key]) { e.preventDefault(); map[e.key](); }
-    else if ((e.key === 'Enter' || e.key === ' ') && e.target === document.body) { e.preventDefault(); zoom.open(current); }
-  } else if (mode === 'unfolded') {
-    const d = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
-    if (d) { e.preventDefault(); lep.scrollToIndex(Math.max(0, Math.min(pages.length - 1, current + d)), !reducedMotion()); }
-    else if (e.key === 'Enter' && e.target === document.body) zoom.open(current);
+  if (e.key === 'Escape' && settingsPanel.hidden) {
+    e.preventDefault();
+    navigate('');
+    return;
   }
+  active.handleKey(e);
 });
 
 // --- Settings ----------------------------------------------------------------
 const settingsBtn = $('.settings-btn');
 const settingsPanel = $('#settings-panel');
+function closeSettings() {
+  settingsPanel.hidden = true;
+  settingsBtn.setAttribute('aria-expanded', 'false');
+}
 settingsBtn.addEventListener('click', () => {
   const open = settingsPanel.hidden;
   settingsPanel.hidden = !open;
   settingsBtn.setAttribute('aria-expanded', open);
 });
 document.addEventListener('click', (e) => {
-  if (!settingsPanel.hidden && !e.target.closest('.settings')) {
-    settingsPanel.hidden = true;
-    settingsBtn.setAttribute('aria-expanded', 'false');
-  }
+  if (!settingsPanel.hidden && !e.target.closest('.settings')) closeSettings();
+});
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !settingsPanel.hidden) closeSettings();
 });
 
-const zigzag = $('#opt-zigzag');
 zigzag.checked = prefs.get('zigzag', false);
-lep.setZigzag(zigzag.checked, true);
+shelf.forEach((b) => b.lep.setZigzag(zigzag.checked, true));
 zigzag.addEventListener('change', () => {
   prefs.set('zigzag', zigzag.checked);
-  lep.setZigzag(zigzag.checked);
+  shelf.forEach((b) => b.lep.setZigzag(zigzag.checked));
 });
 
-const vector = $('#opt-vector');
-if (!pdfUrl) {
-  vector.disabled = true;
-  vector.parentElement.title = 'Add DmitriiDemidovA05.pdf to /pages to enable';
-} else {
-  vector.checked = prefs.get('vector', false);
-  vector.addEventListener('change', async () => {
-    prefs.set('vector', vector.checked);
-    if (!vector.checked) return clearVector();
-    const { pageCount } = await import('./pdf.js');
-    const n = await pageCount(pdfUrl).catch(() => 0);
-    if (n !== pages.length) {
-      vector.checked = false;
-      hint.textContent = `PDF has ${n} pages, images have ${pages.length} — vector mode disabled.`;
-      return;
-    }
-    scheduleVector();
-  });
-}
-
-// --- Download -----------------------------------------------------------------
-const download = $('[data-download]');
-if (pdfUrl) download.href = pdfUrl;
-else download.hidden = true;
+vector.addEventListener('change', async () => {
+  vectorPref = vector.checked;
+  prefs.set('vector', vectorPref);
+  if (!active) return;
+  if (!vector.checked) return active.clearVector();
+  if (!(await active.verifyVector())) vector.checked = false;
+});
 
 // --- Start ----------------------------------------------------------------------
-function fromHash() {
-  const h = location.hash.slice(1);
-  const m = h.match(/^page-(\d+)$/);
-  if (m) {
-    current = Math.min(pages.length, Math.max(1, +m[1])) - 1;
-    return 'pages';
-  }
-  if (h === 'unfolded' || h === 'folded') return h;
-  return mobile() ? 'pages' : 'folded';
-}
-setMode(fromHash(), { instant: true });
-addEventListener('hashchange', () => setMode(fromHash()));
+shelf.forEach((b) => (b.el.inert = true));
+renderChrome();
+applyRoute();
+// Let the first frame settle in place, then switch the zoom transitions on.
+requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('booting')));

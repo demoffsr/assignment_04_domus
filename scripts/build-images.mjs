@@ -1,6 +1,7 @@
 // Build-time image pipeline.
-// Reads /pages/NN.png, writes resized AVIF / WebP / PNG variants into
-// public/generated/ and a manifest that the app imports.
+// For every book in books.json, reads /pages/<id>/NN.png, writes resized
+// AVIF / WebP / PNG variants into public/generated/ and a manifest that the
+// app imports.
 // - Never upscales: widths larger than the source are dropped.
 // - The untouched original is copied for the zoom view.
 // - File names carry a content hash, so they can be cached forever.
@@ -11,68 +12,91 @@ import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, copyFi
 import { join } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
-const srcDir = join(root, 'pages');
+const pagesRoot = join(root, 'pages');
 const outDir = join(root, 'public', 'generated');
 const manifestPath = join(root, 'src', 'generated', 'manifest.json');
 const WIDTHS = [420, 840, 1680];
-const PDF_NAME = 'DmitriiDemidovA05.pdf';
+const books = JSON.parse(readFileSync(join(root, 'books.json'), 'utf8'));
 
 mkdirSync(outDir, { recursive: true });
 mkdirSync(join(root, 'src', 'generated'), { recursive: true });
 
-const files = readdirSync(srcDir).filter((f) => /^\d+\.png$/i.test(f)).sort((a, b) => parseInt(a) - parseInt(b));
-if (!files.length) {
-  console.error('[images] No pages found in /pages (expected 01.png, 02.png, …)');
-  process.exit(1);
-}
-
 const wanted = new Set();
-const pages = [];
+const manifest = { books: {} };
 let built = 0;
 
-for (const file of files) {
-  const buf = readFileSync(join(srcDir, file));
-  const hash = createHash('sha1').update(buf).digest('hex').slice(0, 8);
-  const base = file.replace(/\.png$/i, '');
-  const img = sharp(buf);
-  const { width, height } = await img.metadata();
-  const widths = [...new Set([...WIDTHS.filter((w) => w < width), width])];
-
-  const original = `${base}-original-${hash}.png`;
-  wanted.add(original);
-  if (!existsSync(join(outDir, original))) copyFileSync(join(srcDir, file), join(outDir, original));
-
-  const variants = { avif: [], webp: [], png: [] };
-  for (const w of widths) {
-    for (const fmt of Object.keys(variants)) {
-      if (fmt === 'png' && w === width) {
-        variants.png.push({ w, src: `/generated/${original}` }); // the original is the full-size PNG
-        continue;
-      }
-      const name = `${base}-${w}-${hash}.${fmt}`;
-      wanted.add(name);
-      variants[fmt].push({ w, src: `/generated/${name}` });
-      const out = join(outDir, name);
-      if (existsSync(out)) continue;
-      let p = sharp(buf);
-      if (w !== width) p = p.resize({ width: w, kernel: 'lanczos3' });
-      if (fmt === 'avif') p = p.avif({ quality: 62, effort: 5, chromaSubsampling: '4:4:4' });
-      if (fmt === 'webp') p = p.webp({ quality: 88, smartSubsample: true, effort: 5 });
-      if (fmt === 'png') p = p.png({ compressionLevel: 9, palette: false });
-      await p.toFile(out);
-      built++;
-    }
+for (const book of books) {
+  const srcDir = join(pagesRoot, book.id);
+  const files = existsSync(srcDir)
+    ? readdirSync(srcDir).filter((f) => /^\d+\.png$/i.test(f)).sort((a, b) => parseInt(a) - parseInt(b))
+    : [];
+  if (!files.length) {
+    console.warn(`[images] ${book.id}: no pages in /pages/${book.id} (expected 01.png, 02.png, …) — skipped`);
+    continue;
   }
 
-  // Average colour of the page border = the paper colour. Used behind the image
-  // (so anti-aliased edges never show a light fringe) and for the back of the sheet.
-  pages.push({ file, width, height, hash, variants, original: `/generated/${original}`, paper: await edgeColour(buf) });
-  process.stdout.write(`\r[images] ${pages.length}/${files.length}`);
+  const pages = [];
+  for (const file of files) {
+    const buf = readFileSync(join(srcDir, file));
+    const hash = createHash('sha1').update(buf).digest('hex').slice(0, 8);
+    const base = `${book.id}-${file.replace(/\.png$/i, '')}`;
+    const img = sharp(buf);
+    const { width, height } = await img.metadata();
+    const widths = [...new Set([...WIDTHS.filter((w) => w < width), width])];
+
+    const original = `${base}-original-${hash}.png`;
+    wanted.add(original);
+    if (!existsSync(join(outDir, original))) copyFileSync(join(srcDir, file), join(outDir, original));
+
+    const variants = { avif: [], webp: [], png: [] };
+    for (const w of widths) {
+      for (const fmt of Object.keys(variants)) {
+        if (fmt === 'png' && w === width) {
+          variants.png.push({ w, src: `/generated/${original}` }); // the original is the full-size PNG
+          continue;
+        }
+        const name = `${base}-${w}-${hash}.${fmt}`;
+        wanted.add(name);
+        variants[fmt].push({ w, src: `/generated/${name}` });
+        const out = join(outDir, name);
+        if (existsSync(out)) continue;
+        let p = sharp(buf);
+        if (w !== width) p = p.resize({ width: w, kernel: 'lanczos3' });
+        if (fmt === 'avif') p = p.avif({ quality: 62, effort: 5, chromaSubsampling: '4:4:4' });
+        if (fmt === 'webp') p = p.webp({ quality: 88, smartSubsample: true, effort: 5 });
+        if (fmt === 'png') p = p.png({ compressionLevel: 9, palette: false });
+        await p.toFile(out);
+        built++;
+      }
+    }
+
+    // Average colour of the page border = the paper colour. Used behind the image
+    // (so anti-aliased edges never show a light fringe) and for the back of the sheet.
+    pages.push({ file, width, height, hash, variants, original: `/generated/${original}`, paper: await edgeColour(buf) });
+    process.stdout.write(`\r[images] ${book.id} ${pages.length}/${files.length}`);
+  }
+
+  let pdf = null;
+  if (book.pdf && existsSync(join(srcDir, book.pdf))) {
+    copyFileSync(join(srcDir, book.pdf), join(outDir, book.pdf));
+    wanted.add(book.pdf);
+    pdf = `/generated/${book.pdf}`;
+  } else if (book.pdf) {
+    console.warn(`\n[images] ${book.id}: ${book.pdf} not found in /pages/${book.id} — Download button and PDF rendering disabled.`);
+  }
+
+  manifest.books[book.id] = { pdf, pages };
+  console.log('');
+}
+
+if (!Object.keys(manifest.books).length) {
+  console.error('[images] No book has any pages — nothing to build.');
+  process.exit(1);
 }
 
 // Remove stale variants from earlier builds.
 for (const f of readdirSync(outDir)) {
-  if (!wanted.has(f) && f !== PDF_NAME) rmSync(join(outDir, f));
+  if (!wanted.has(f)) rmSync(join(outDir, f));
 }
 
 async function edgeColour(buf) {
@@ -92,13 +116,6 @@ async function edgeColour(buf) {
   return { r, g, b };
 }
 
-let pdf = null;
-if (existsSync(join(srcDir, PDF_NAME))) {
-  copyFileSync(join(srcDir, PDF_NAME), join(outDir, PDF_NAME));
-  pdf = `/generated/${PDF_NAME}`;
-} else {
-  console.warn(`\n[images] ${PDF_NAME} not found in /pages — Download button and PDF rendering disabled.`);
-}
-
-writeFileSync(manifestPath, JSON.stringify({ pdf, pages }, null, 2));
-console.log(`\n[images] ${pages.length} pages, ${built} new files written.`);
+const total = Object.values(manifest.books).reduce((n, b) => n + b.pages.length, 0);
+writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+console.log(`[images] ${Object.keys(manifest.books).length} books, ${total} pages, ${built} new files written.`);

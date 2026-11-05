@@ -3,21 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Deliberation — Dmitrii Demidov</title>
-    <meta name="description" content="Deliberation — a design booklet by Dmitrii Demidov. Domus Academy, 2026." />
+    <title>Tubus — Dmitrii Demidov</title>
+    <meta name="description" content="Tubus — a library of leporello booklets. Fold, unfold and page through each one." />
     <meta name="theme-color" content="#000000" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23000%22/%3E%3Cpath d=%22M7 9l6 2v14l-6-2zM13 11l6-2v14l-6 2zM19 9l6 2v14l-6-2z%22 fill=%22%232f5bff%22/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   </head>
-  <body>
+  <body data-view="library" class="booting">
     <a class="skip" href="#stage">Skip to booklet</a>
 
     <header class="top">
+      <p class="wordmark" aria-hidden="true"><strong>Tubus</strong><span class="dim" data-count></span></p>
+
       <div class="credits">
-        <h1>Deliberation</h1>
-        <p><span>Dmitrii Demidov</span><span class="dim">Domus Academy, 2026</span></p>
+        <h1>
+          <button type="button" class="crumb" data-back>Tubus</button>
+          <span class="sep" aria-hidden="true">/</span>
+          <span data-title>Tubus</span>
+        </h1>
+        <p><span data-author></span><span class="dim" data-meta></span></p>
       </div>
 
       <nav class="modes" aria-label="View mode">
@@ -36,20 +42,8 @@
     </header>
 
     <main id="stage" class="stage" tabindex="-1">
-      <section class="view view-lep" aria-label="Leporello" hidden>
-        <div class="lep" data-lep></div>
-        <button type="button" class="pill unfold-btn" data-unfold>Unfold</button>
-      </section>
-
-      <section class="view view-pages" aria-label="Page by page" aria-roledescription="carousel" hidden>
-        <div class="pv" data-pv></div>
-        <div class="pv-nav">
-          <button type="button" class="arrow" data-prev aria-label="Previous page">←</button>
-          <p class="counter" aria-live="polite"><span data-section class="dim"></span> <span data-counter></span></p>
-          <button type="button" class="arrow" data-next aria-label="Next page">→</button>
-        </div>
-        <div class="thumbs" data-thumbs role="tablist" aria-label="Pages"></div>
-      </section>
+      <!-- One .book per entry in books.json is appended here (see #book-tpl). -->
+      <nav class="library" data-library aria-label="Tubus"></nav>
     </main>
 
     <footer class="bottom">
@@ -57,15 +51,36 @@
       <p class="hint dim" data-hint></p>
     </footer>
 
-    <div class="zoom" data-zoom role="dialog" aria-modal="true" aria-label="Zoomed page" hidden>
-      <div class="zoom-canvas" data-zoom-canvas></div>
-      <div class="zoom-bar">
-        <span class="dim" data-zoom-label></span>
-        <button type="button" data-zoom-out aria-label="Zoom out">−</button>
-        <button type="button" data-zoom-in aria-label="Zoom in">+</button>
-        <button type="button" data-zoom-close aria-label="Close zoom">Close</button>
+    <template id="book-tpl">
+      <div class="book">
+        <section class="view view-lep" aria-label="Leporello">
+          <div class="lep" data-lep></div>
+          <button type="button" class="pill unfold-btn" data-unfold>Unfold</button>
+        </section>
+
+        <section class="view view-pages" aria-label="Page by page" aria-roledescription="carousel" hidden>
+          <div class="pv" data-pv></div>
+          <div class="pv-nav">
+            <button type="button" class="arrow" data-prev aria-label="Previous page">←</button>
+            <p class="counter" aria-live="polite"><span data-section class="dim"></span> <span data-counter></span></p>
+            <button type="button" class="arrow" data-next aria-label="Next page">→</button>
+          </div>
+          <div class="thumbs" data-thumbs role="tablist" aria-label="Pages"></div>
+        </section>
       </div>
-    </div>
+    </template>
+
+    <template id="zoom-tpl">
+      <div class="zoom" data-zoom role="dialog" aria-modal="true" aria-label="Zoomed page" hidden>
+        <div class="zoom-canvas" data-zoom-canvas></div>
+        <div class="zoom-bar">
+          <span class="dim" data-zoom-label></span>
+          <button type="button" data-zoom-out aria-label="Zoom out">−</button>
+          <button type="button" data-zoom-in aria-label="Zoom in">+</button>
+          <button type="button" data-zoom-close aria-label="Close zoom">Close</button>
+        </div>
+      </div>
+    </template>
 
     <script type="module" src="/src/main.js"></script>
   </body>

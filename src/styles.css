@@ -67,7 +67,17 @@ button:disabled { opacity: 0.25; cursor: default; }
   position: relative;
   z-index: 5;
 }
-.credits h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.wordmark {
+  position: absolute; left: clamp(16px, 3vw, 32px); top: 50%;
+  margin: 0; display: flex; align-items: baseline; gap: 14px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.wordmark strong { font-size: clamp(30px, 3.4vw, 44px); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+.credits h1 { margin: 0; display: flex; align-items: baseline; gap: 6px; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.crumb { color: var(--dim); font-weight: 400; transition: color 0.2s; }
+.crumb:hover { color: var(--fg); }
+.sep { color: var(--dim); font-weight: 400; }
 .credits p { margin: 2px 0 0; display: flex; gap: 10px; flex-wrap: wrap; }
 
 .modes { display: flex; gap: 2px; padding: 3px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--faint); }
@@ -97,6 +107,17 @@ button:disabled { opacity: 0.25; cursor: default; }
 
 /* ── Stage & views ───────────────────────────────────────── */
 .stage { position: relative; min-height: 0; }
+/* The stage is only focusable so the skip link can land on it; it is not a control. */
+.stage:focus, .stage:focus-visible { outline: none; }
+/* One .book per leporello. All of them are full-stage size; the library only
+   moves and scales them (transform, nothing that re-lays-out). */
+.book {
+  position: absolute; inset: 0;
+  transform: translate3d(var(--x, 0px), var(--y, 0px), 0) scale(var(--s, 1));
+  transition: transform 0.35s var(--ease), opacity 0.45s var(--ease), visibility 0s;
+}
+body.zooming .book { transition-duration: 0.9s, 0.45s, 0s; }
+body.booting .book, body.booting .credits, body.booting .wordmark, body.booting .modes, body.booting .settings, body.booting .unfold-btn, body.booting .library { transition: none !important; }
 .view {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
@@ -197,7 +218,7 @@ button:disabled { opacity: 0.25; cursor: default; }
   pointer-events: none;
 }
 
-.unfold-btn { margin: 0 0 6px; }
+.unfold-btn { margin: 0 0 6px; transition: opacity 0.4s var(--ease) 0.5s; }
 
 /* ── Page by page ────────────────────────────────────────── */
 .pv {
@@ -267,6 +288,48 @@ button:disabled { opacity: 0.25; cursor: default; }
 .unfold-btn::before { background: var(--blue); }
 .pill:hover { box-shadow: inset 0 0 0 1px var(--fg); }
 
+/* ── Library ─────────────────────────────────────────────── */
+/* Library: every book stands closed at its own spot (--lx/--ly/--ls come from JS). */
+body[data-view='library'] .book { --x: var(--lx, 0px); --y: var(--ly, 0px); --s: var(--ls, 0.6); pointer-events: none; }
+body[data-view='library'] .book.hover { --y: calc(var(--ly, 0px) - 10px); }
+body[data-view='library'] .unfold-btn { opacity: 0; transition-delay: 0s; }
+/* Book: the chosen one comes forward, the rest slide aside and fade. */
+body[data-view='book'] .book.current { --x: 0px; --y: 0px; --s: 1; }
+body[data-view='book'] .book:not(.current) {
+  --x: calc(var(--lx, 0px) * 2.4); --y: var(--ly, 0px); --s: var(--ls, 0.6);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: transform 0.9s var(--ease), opacity 0.45s var(--ease), visibility 0s linear 0.45s;
+}
+/* Book chrome appears once the book has come forward. */
+.modes, .settings, .credits { transition: opacity 0.4s var(--ease) 0.45s; }
+body[data-view='library'] .modes, body[data-view='library'] .settings, body[data-view='library'] .credits {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 0.25s var(--ease), visibility 0s linear 0.25s;
+}
+/* The big wordmark stands in for the credits while the library is showing. */
+.wordmark { opacity: 0; visibility: hidden; transition: opacity 0.25s var(--ease), visibility 0s linear 0.25s; }
+body[data-view='library'] .wordmark { opacity: 1; visibility: visible; transition: opacity 0.4s var(--ease) 0.5s; }
+
+.library { position: absolute; inset: 0; z-index: 2; pointer-events: none; transition: opacity 0.3s var(--ease) 0.5s; }
+body[data-view='book'] .library { opacity: 0; visibility: hidden; transition: opacity 0.3s var(--ease), visibility 0s linear 0.3s; }
+.lib-hit {
+  position: absolute; left: 50%; top: 50%;
+  width: var(--hw, 0px); height: var(--hh, 0px);
+  transform: translate3d(calc(var(--hx, 0px) - 50%), calc(var(--hy, 0px) - 50%), 0);
+  pointer-events: auto; cursor: pointer;
+  border-radius: 4px;
+}
+.lib-label {
+  position: absolute; left: 50%; top: calc(100% + 18px);
+  transform: translateX(-50%);
+  display: grid; justify-items: center; gap: 2px;
+  white-space: nowrap; text-align: center;
+  color: var(--dim);
+  transition: color 0.25s;
+}
+.lib-label strong { color: var(--fg); font-weight: 600; letter-spacing: 0.01em; }
+.lib-hit:hover .lib-label .dim, .lib-hit:focus-visible .lib-label .dim { color: var(--fg); }
+
 /* ── Zoom ────────────────────────────────────────────────── */
 .zoom {
   position: fixed; inset: 0; z-index: 20;
@@ -307,6 +370,7 @@ button:disabled { opacity: 0.25; cursor: default; }
   :root { --top: 92px; --bottom: 52px; }
   .top { grid-template-columns: 1fr auto; grid-template-rows: auto auto; row-gap: 10px; padding-top: 10px; }
   .modes { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  .lib-label { font-size: 12px; }
   .modes button { padding: 6px 10px; }
   .lep.open:not(.animating) { scroll-snap-type: x mandatory; }
   .hint { display: none; }

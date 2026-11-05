@@ -7,6 +7,12 @@ const ZIGZAG = 13 * DEG; // resting fold angle when "keep slight zigzag" is on
 const PAPER = 1.6; // px of thickness per sheet in the closed stack
 const FOLDED_SCALE = 1; // size of the closed stack relative to the open strip
 
+/** Size of one sheet inside a lep viewport of vw × vh. */
+export function sheetSize(vw, vh) {
+  const h = Math.min(vh * 0.8, (vw * (vw < 700 ? 0.78 : 0.4)) / ASPECT);
+  return { w: h * ASPECT, h };
+}
+
 /**
  * Folded + unfolded views share one 3D scene driven by `p`:
  *   p = 0 → closed stack, cover facing the viewer, camera slightly turned
@@ -60,8 +66,7 @@ export function createLeporello(root, pages, { reducedMotion, onOpen, onIndex })
   function measure() {
     vw = root.clientWidth;
     vh = root.clientHeight;
-    h = Math.min(vh * 0.8, (vw * (vw < 700 ? 0.78 : 0.4)) / ASPECT);
-    w = h * ASPECT;
+    ({ w, h } = sheetSize(vw, vh));
     pad = Math.max(16, Math.min(vw * 0.08, (vw - w) / 2));
     root.style.setProperty('--pw', `${w}px`);
     root.style.setProperty('--ph', `${h}px`);
@@ -181,7 +186,8 @@ export function createLeporello(root, pages, { reducedMotion, onOpen, onIndex })
     animateTo(1, 2600);
   }
 
-  function fold(instant) {
+  /** `duration` = full fold time in ms; `done` runs once the stack is closed. */
+  function fold(instant, { duration = 2000, done } = {}) {
     hydrate(panels[0].pic, 'high');
     const s = root.scrollLeft;
     root.classList.remove('open');
@@ -189,13 +195,14 @@ export function createLeporello(root, pages, { reducedMotion, onOpen, onIndex })
       root.scrollLeft = 0;
       if (instant) {
         p = 0;
-        return render();
+        render();
+        return done && done();
       }
-      return animateTo(0, 2000);
+      return animateTo(0, duration, done);
     }
     // Glide back to the cover first, then close.
     root.scrollTo({ left: 0, behavior: reducedMotion() ? 'auto' : 'smooth' });
-    const wait = () => (root.scrollLeft < 2 ? animateTo(0, 2000) : requestAnimationFrame(wait));
+    const wait = () => (root.scrollLeft < 2 ? animateTo(0, duration, done) : requestAnimationFrame(wait));
     requestAnimationFrame(wait);
   }
 

@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
-// Re-runs the image pipeline when anything in /pages changes during `npm run dev`,
+// Re-runs the image pipeline when anything in /pages (or books.json) changes during `npm run dev`,
 // then reloads the browser. No need to restart the server after swapping pages.
 function watchPages() {
   const dir = resolve(__dirname, 'pages');
@@ -14,7 +14,7 @@ function watchPages() {
     name: 'watch-pages',
     apply: 'serve',
     configureServer(server) {
-      server.watcher.add(dir);
+      server.watcher.add([dir, resolve(__dirname, 'books.json')]);
       const run = () => {
         if (running) return (again = true);
         running = true;
@@ -30,7 +30,8 @@ function watchPages() {
         });
       };
       const onChange = (file) => {
-        if (!file.startsWith(dir) || !/\.(png|pdf)$/i.test(file)) return;
+        const inPages = file.startsWith(dir) && /\.(png|pdf)$/i.test(file);
+        if (!inPages && !file.endsWith('books.json')) return;
         clearTimeout(timer);
         timer = setTimeout(run, 600); // wait for Finder to finish copying a batch
       };
