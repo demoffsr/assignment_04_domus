@@ -74,7 +74,7 @@ button:disabled { opacity: 0.25; cursor: default; }
   transform: translateY(-50%);
   pointer-events: none;
 }
-.wordmark strong { font-size: clamp(30px, 3.4vw, 44px); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+.wordmark strong { font-size: 16px; font-weight: 600; letter-spacing: -0.015em; line-height: 1; }
 .credits { grid-column: 1; grid-row: 1; }
 .modes { grid-column: 2; grid-row: 1; }
 .credits h1 { margin: 0; display: flex; align-items: baseline; gap: 6px; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
@@ -310,7 +310,7 @@ body[data-view='library'] .modes, body[data-view='library'] .settings, body[data
   opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity 0.25s var(--ease), visibility 0s linear 0.25s;
 }
-/* The big wordmark stands in for the credits while the library is showing. */
+/* The wordmark stands in for the credits while the library is showing. */
 .wordmark { opacity: 0; visibility: hidden; transition: opacity 0.25s var(--ease), visibility 0s linear 0.25s; }
 body[data-view='library'] .wordmark { opacity: 1; visibility: visible; transition: opacity 0.4s var(--ease) 0.5s; }
 
@@ -356,7 +356,37 @@ body[data-view='book'] .shelf, body[data-view='book'] .shelf-fade { opacity: 0; 
 .cover picture, .cover img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .cover img { object-fit: cover; opacity: 0; transition: opacity 0.35s ease; user-select: none; -webkit-user-drag: none; }
 .cover img.loaded { opacity: 1; }
-.card-open { display: block; width: 100%; }
+.card { position: relative; }
+.card-open { position: relative; display: block; width: 100%; }
+/* Selected: a thin light frame close to the cover. While something is selected the rest dims a little. */
+.card-open::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 6px; pointer-events: none;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  opacity: 0; transition: opacity 0.2s var(--ease);
+}
+.card.selected .card-open::after { opacity: 1; }
+.cover { transition: transform 0.35s var(--ease), filter 0.25s var(--ease); }
+.card.selected:hover .cover, .card.selected:focus-within .cover { transform: none; } /* the frame stays put, so the cover does too */
+body.selecting .card:not(.selected) .cover { filter: brightness(0.36) saturate(0.85); }
+body.selecting .card:not(.selected) .card-label { opacity: 0.4; }
+body.selecting .card:not(.selected):hover .cover { filter: brightness(0.85); }
+body.selecting .card:not(.selected):hover .card-label { opacity: 1; }
+.card-label { transition: opacity 0.25s var(--ease); }
+/* The selection circle sits inside the cover's top-left corner. */
+.card-check {
+  position: absolute; top: 10px; left: 10px; z-index: 2;
+  display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.9);
+  opacity: 0; transition: opacity 0.2s, transform 0.35s var(--ease), background-color 0.2s, box-shadow 0.2s;
+}
+.card-check svg { width: 16px; height: 16px; fill: none; stroke: #15151a; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+/* The dash starts past the end of the path (1.12 with a gap of 2), so the round cap leaves no dot behind. */
+.card-check path { stroke-dasharray: 1 2; stroke-dashoffset: 1.12; transition: stroke-dashoffset 0.28s var(--ease) 0.06s; }
+.card:hover .card-check, .card-check:focus-visible, body.selecting .card-check { opacity: 1; }
+.card:hover:not(.selected) .card-check { transform: translateY(-6px); } /* travels with the cover when it lifts */
+.card.selected .card-check { opacity: 1; background: #fff; box-shadow: none; }
+.card.selected .card-check path { stroke-dashoffset: 0; }
+@media (hover: none) { .card-check { opacity: 1; } } /* no hover on touch screens */
 .card:hover .cover, .card:focus-within .cover { transform: translateY(-6px); }
 .card-foot { display: flex; align-items: flex-start; gap: 6px; margin-top: 14px; }
 .card-label { display: grid; flex: 1; gap: 2px; min-width: 0; text-align: left; color: var(--dim); }
@@ -416,6 +446,31 @@ body[data-view='book'] .people { opacity: 0; visibility: hidden; pointer-events:
 .avatar { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; color: #fff; }
 .library-empty { position: absolute; left: 50%; top: 50%; z-index: 1; margin: 0; transform: translate(-50%, -50%); text-align: center; }
 body[data-view='book'] .library-empty { display: none; }
+/* The bar that appears when books are selected */
+.selbar {
+  position: fixed; left: 50%; bottom: 24px; z-index: 25; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 24px); padding: 8px 10px 8px 16px;
+  border-radius: 999px; background: #161616; font-size: 13px;
+  box-shadow: inset 0 0 0 1px var(--faint), 0 18px 44px rgba(0, 0, 0, 0.55);
+  animation: selbar-in 0.25s var(--ease) both;
+}
+.selbar[hidden] { display: none; }
+@keyframes selbar-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.selbar-count { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.selbar-all { padding: 4px 6px; margin-left: -2px; color: var(--dim); white-space: nowrap; border-radius: 6px; transition: color 0.2s; }
+.selbar-all:hover:not(:disabled) { color: var(--fg); }
+.selbar-all[hidden] { display: none; }
+.selbar-all:disabled { opacity: 0.4; cursor: default; }
+.selbar-sep { width: 1px; height: 18px; background: var(--faint); }
+.selbar .chip { white-space: nowrap; padding: 6px 12px; }
+.selbar .chip:disabled { opacity: 0.4; cursor: default; }
+.selbar-close { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--dim); transition: color 0.2s, background-color 0.2s; }
+.selbar-close:hover { color: var(--fg); background: rgba(255, 255, 255, 0.1); }
+body[data-view='book'] .selbar { display: none; }
+body.selecting .toast { bottom: 92px; }
+@media (max-width: 700px) { .selbar { gap: 6px; padding-left: 12px; } .selbar-sep { display: none; } .selbar .chip { padding: 6px 10px; } }
+@media (prefers-reduced-motion: reduce) { .selbar { animation: none; } }
+
 /* Small menu behind the three dots, and the same actions inside a book's Settings */
 .card-menu {
   position: fixed; z-index: 20; min-width: 170px; padding: 6px;
@@ -476,8 +531,8 @@ body[data-view='book'] .library-empty { display: none; }
 }
 html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page { display: flex; }
 .auth-brand {
-  position: absolute; top: 20px; left: clamp(16px, 3vw, 32px);
-  margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;
+  position: absolute; top: 24px; left: clamp(16px, 3vw, 32px);
+  margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.015em; line-height: 1;
 }
 .auth-card { width: min(400px, 100%); margin: auto; } /* centred, and scrolls from the top when tall */
 .auth-card h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
@@ -656,7 +711,7 @@ body[data-view='book'] .add-btn { display: none; }
   .top { grid-template-columns: 1fr auto; grid-template-rows: auto auto; row-gap: 10px; padding-top: 10px; }
   .modes { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
   .people { grid-column: 1 / -1; grid-row: 2; }
-  .wordmark { top: 12px; transform: none; } /* the filter takes the second row, so the logo stays on the first */
+  .wordmark { top: 19px; transform: none; } /* the filter takes the second row, so the logo stays on the first, level with the buttons */
   .top-right { grid-column: 2; grid-row: 1; }
   .card-label { font-size: 12px; }
   .modes button { padding: 6px 10px; }

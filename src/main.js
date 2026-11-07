@@ -3,6 +3,7 @@ import { books, libraryError, fetchBooks, createPicture, hydrate } from './image
 import { createBook } from './book.js';
 import { auth } from './auth.js';
 import { createUploader } from './upload.js';
+import { zip } from './zip.js';
 
 if (libraryError) {
   document.querySelector('[data-hint]').textContent = 'The library could not be loaded. Try again in a moment.';
@@ -76,6 +77,12 @@ const coverIO = new IntersectionObserver((list) => {
 
 const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 150));
 
+// --- Selecting several books (to download or delete them together) ------------------------
+const selected = new Set(); // entries
+let lastPicked = null; // for Shift-click ranges
+
+// A soft checkmark: rounded ends, drawn in as the book gets selected.
+const CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.8 12.6l3.7 3.6 6.9-7.6" pathLength="1"/></svg>';
 const DOTS = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
 function makeCard(entry) {
@@ -83,6 +90,7 @@ function makeCard(entry) {
   const card = document.createElement('div');
   card.className = 'card';
   card.innerHTML = `
+    <button type="button" class="card-check" aria-pressed="false">${CHECK}</button>
     <button type="button" class="card-open"><span class="cover"></span></button>
     <div class="card-foot">
       <button type="button" class="card-label" tabindex="-1"><strong></strong><span class="lib-author"></span><span class="dim"></span></button>
@@ -94,9 +102,11 @@ function makeCard(entry) {
     $('.cover', card).style.background = `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
     $('.cover', card).append(createPicture(first, { sizes: '(max-width: 700px) 46vw, 260px' }));
   }
-  const open = () => navigate(`${entry.id}/folded`);
+  // With something selected, a click picks a book instead of opening it.
+  const open = (e) => (selected.size ? toggleSelect(entry, e) : navigate(`${entry.id}/folded`));
   $('.card-open', card).addEventListener('click', open);
   $('.card-label', card).addEventListener('click', open);
+  $('.card-check', card).addEventListener('click', (e) => toggleSelect(entry, e));
   $('.card-dots', card).addEventListener('click', () => toggleCardMenu(entry));
   // Build the 3D book while the pointer is on its way to the click.
   const warm = () => idle(() => ensureBook(entry));
@@ -115,6 +125,7 @@ function fillCard(entry) {
   $('.dim', card).textContent = data.meta || '';
   $('.card-label', card).title = [data.title, data.author, data.meta].filter(Boolean).join('\n');
   $('.card-open', card).setAttribute('aria-label', `Open ${data.title}`);
+  $('.card-check', card).setAttribute('aria-label', `Select ${data.title}`);
   $('.card-dots', card).setAttribute('aria-label', `More about ${data.title}`);
 }
 
@@ -141,15 +152,19 @@ books.forEach(addEntry);
 
 function renderShelf() {
   entries.forEach((e) => (e.card.hidden = !isShown(e)));
+  for (const e of [...selected]) if (e.card.hidden) setSelected(e, false); // selection only covers what is on screen
+  renderSelection();
 }
 
 /** Takes a book off the page (deleted here or by someone else). */
 function removeEntry(entry) {
+  selected.delete(entry);
   const i = entries.indexOf(entry);
   if (i >= 0) entries.splice(i, 1);
   coverIO.unobserve(entry.card);
   entry.card.remove();
   if (entry.book && entry.book !== active) entry.book.destroy(); // an open one goes once the library is back
+  renderSelection();
 }
 
 /** Brings the page in line with the library: new books appear, renamed ones update, deleted ones go. */
@@ -294,6 +309,118 @@ function toast(text, kind = 'ok') {
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), kind === 'ok' ? 3400 : 5000);
 }
 
+// --- Selecting several books: download as a ZIP, delete together -------------------------
+const selbar = $('[data-selbar]');
+const selDownload = $('[data-sel-download]');
+const selDelete = $('[data-sel-delete]');
+const selAll = $('[data-sel-all]');
+
+function setSelected(entry, on) {
+  if (on) selected.add(entry);
+  else selected.delete(entry);
+  entry.card.classList.toggle('selected', on);
+  $('.card-check', entry.card).setAttribute('aria-pressed', on);
+}
+
+/** Click on a cover or its circle. Shift-click selects everything between this book and the last one picked. */
+function toggleSelect(entry, event) {
+  const shown = entries.filter((e) => !e.card.hidden);
+  if (event?.shiftKey && lastPicked && shown.includes(lastPicked) && shown.includes(entry)) {
+    const [a, b] = [shown.indexOf(lastPicked), shown.indexOf(entry)].sort((x, y) => x - y);
+    const on = !selected.has(entry);
+    shown.slice(a, b + 1).forEach((e) => setSelected(e, on));
+  } else {
+    setSelected(entry, !selected.has(entry));
+  }
+  lastPicked = entry;
+  closeCardMenu();
+  renderSelection();
+}
+
+function clearSelection() {
+  for (const e of [...selected]) setSelected(e, false);
+  lastPicked = null;
+  renderSelection();
+}
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** The bar shows what can be done with the current selection: download the ones with a PDF, delete your own. */
+function renderSelection() {
+  const list = [...selected];
+  const pdfs = list.filter((e) => e.data.pdfUrl);
+  const mine = list.filter(canManage);
+  document.body.classList.toggle('selecting', list.length > 0);
+  selbar.hidden = list.length === 0;
+  $('[data-sel-count]').textContent = `${list.length} selected`;
+  selDownload.hidden = pdfs.length === 0;
+  selDownload.textContent = pdfs.length > 1 ? `Download ${pdfs.length} as ZIP` : 'Download PDF';
+  selDelete.hidden = mine.length === 0;
+  selDelete.textContent = `Delete ${mine.length}`;
+  const shown = entries.filter((e) => !e.card.hidden);
+  selAll.hidden = shown.every((e) => selected.has(e));
+}
+
+selAll.addEventListener('click', () => {
+  entries.filter((e) => !e.card.hidden).forEach((e) => setSelected(e, true));
+  renderSelection();
+});
+$('[data-sel-clear]').addEventListener('click', clearSelection);
+
+/** A file-system friendly name for a book's PDF. */
+const fileName = (title) => `${title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'leporello'}.pdf`;
+
+let bulkBusy = false;
+function setBulkBusy(on, text) {
+  bulkBusy = on;
+  [selDownload, selDelete, selAll].forEach((b) => (b.disabled = on));
+  if (text) $('[data-sel-count]').textContent = text;
+  if (!on) renderSelection();
+}
+
+/** One PDF is saved as it is; several are packed into one ZIP (browsers often block a burst of separate downloads). */
+async function downloadSelected() {
+  const list = [...selected].filter((e) => e.data.pdfUrl);
+  if (!list.length || bulkBusy) return;
+  const skipped = selected.size - list.length;
+  if (list.length === 1) {
+    await downloadPdf(list[0].data);
+    return toast(skipped ? `PDF saved; ${plural(skipped, 'book has', 'books have')} no PDF` : `“${list[0].data.title}” saved`);
+  }
+  setBulkBusy(true, 'Preparing ZIP…');
+  const files = [];
+  const used = new Set();
+  let failed = 0;
+  try {
+    for (let i = 0; i < list.length; i++) {
+      $('[data-sel-count]').textContent = `Preparing ZIP… ${i + 1}/${list.length}`;
+      try {
+        const res = await fetch(list[i].data.pdfUrl);
+        if (!res.ok) throw new Error(res.status);
+        let name = fileName(list[i].data.title);
+        for (let n = 2; used.has(name.toLowerCase()); n++) name = fileName(`${list[i].data.title} (${n})`);
+        used.add(name.toLowerCase());
+        files.push({ name, data: new Uint8Array(await res.arrayBuffer()) });
+      } catch {
+        failed++;
+      }
+    }
+    if (!files.length) return toast('Could not download the PDFs. Try again.', 'error');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(zip(files));
+    a.download = `tubus-${files.length}-leporellos.zip`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    const notes = [skipped && `${skipped} without a PDF skipped`, failed && `${failed} failed`].filter(Boolean).join(', ');
+    toast(`ZIP with ${plural(files.length, 'PDF', 'PDFs')} saved${notes ? ` (${notes})` : ''}`, failed ? 'error' : 'ok');
+  } finally {
+    setBulkBusy(false);
+  }
+}
+selDownload.addEventListener('click', downloadSelected);
+
 // --- Managing a book: rename · delete · download ---------------------------------------
 function canManage(entry) {
   return !!auth.user && entry.data.authorSlug === auth.user.slug; // the server checks again
@@ -338,6 +465,7 @@ function toggleCardMenu(entry) {
   if (menuEntry === entry) return closeCardMenu();
   closeCardMenu();
   if (!applyActions(cardMenu, entry)) return;
+  $('[data-act="select"]', cardMenu).textContent = selected.has(entry) ? 'Unselect' : 'Select';
   menuEntry = entry;
   menuDots = dots;
   dots.setAttribute('aria-expanded', 'true');
@@ -375,15 +503,19 @@ const renameForm = $('#rename-form');
 const renameError = $('[data-rename-error]');
 const deleteDialog = $('#delete-dialog');
 const deleteError = $('[data-delete-error]');
-let dialogEntry = null;
+let dialogEntry = null; // the book the rename dialog is about
+let dialogEntries = []; // the books the delete dialog is about
+let deleteFromBar = false; // the dialog was opened from the selection bar, so the selection ends with it
 
 function act(entry, what) {
   if (!entry) return;
   closeCardMenu();
   closeSettings();
-  dialogEntry = entry;
+  dialogEntries = [entry];
+  if (what === 'select') return toggleSelect(entry);
   if (what === 'download') return downloadPdf(entry.data);
   if (what === 'rename') {
+    dialogEntry = entry;
     const f = renameForm.elements;
     f.title.value = entry.data.title;
     f.meta.value = entry.data.meta || '';
@@ -392,10 +524,21 @@ function act(entry, what) {
     renameDialog.showModal();
     f.title.select();
   } else if (what === 'delete') {
-    $('[data-delete-text]').textContent = `“${entry.data.title}” will disappear from the library for everyone.`;
-    deleteError.textContent = '';
-    deleteDialog.showModal();
+    deleteFromBar = false;
+    askDelete([entry]);
   }
+}
+
+/** Opens the delete confirmation for one or several books (only the ones this person owns are deleted). */
+function askDelete(list) {
+  dialogEntries = list;
+  const titles = list.map((e) => `“${e.data.title}”`);
+  $('#delete-title').textContent = list.length === 1 ? 'Delete this leporello?' : `Delete ${list.length} leporellos?`;
+  $('[data-delete-text]').textContent = list.length === 1
+    ? `${titles[0]} will disappear from the library for everyone.`
+    : `${titles.slice(0, 3).join(', ')}${list.length > 3 ? ` and ${list.length - 3} more` : ''} will disappear from the library for everyone.`;
+  deleteError.textContent = '';
+  deleteDialog.showModal();
 }
 
 $$('[data-act]', cardMenu).forEach((b) => b.addEventListener('click', () => act(menuEntry, b.dataset.act)));
@@ -435,24 +578,51 @@ renameForm.addEventListener('submit', async (e) => {
 });
 
 $('[data-delete-confirm]').addEventListener('click', async () => {
-  const entry = dialogEntry;
+  const list = [...dialogEntries];
   const button = $('[data-delete-confirm]');
   button.disabled = true;
-  try {
-    await auth.call(`/books/${entry.id}`, { method: 'DELETE' });
-    deleteDialog.close();
-    toast(`Leporello “${entry.data.title}” deleted`);
-    const wasOpen = entry.book && entry.book === active;
-    removeEntry(entry);
-    if (wasOpen) navigate(libraryHash()); // the open book folds away, the library takes over
-    refreshView();
-    loadPeople(true);
-  } catch (err) {
-    deleteError.textContent = MANAGE_ERRORS[err.code] || 'Something went wrong. Try again.';
-    if (err.code === 'no_such_book') syncLibrary();
-  } finally {
-    button.disabled = false;
+  deleteError.textContent = '';
+  let done = 0;
+  let failed = 0;
+  let lastError = null;
+  const openOne = list.find((e) => e.book && e.book === active);
+  const queue = [...list];
+  // A few at a time keeps it quick without flooding the server.
+  await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
+    while (queue.length) {
+      const entry = queue.shift();
+      try {
+        await auth.call(`/books/${entry.id}`, { method: 'DELETE' });
+        done++;
+        removeEntry(entry);
+      } catch (err) {
+        if (err.code === 'no_such_book') { done++; removeEntry(entry); } // already gone
+        else { failed++; lastError = err; }
+      }
+    }
+  }));
+  button.disabled = false;
+  if (failed && !done) {
+    deleteError.textContent = MANAGE_ERRORS[lastError?.code] || 'Something went wrong. Try again.';
+    return;
   }
+  deleteDialog.close();
+  const only = list.length === 1 ? list[0] : null;
+  toast(only ? `Leporello “${only.data.title}” deleted` : `${plural(done, 'leporello', 'leporellos')} deleted${failed ? `, ${failed} could not be deleted` : ''}`, failed ? 'error' : 'ok');
+  if (deleteFromBar) clearSelection(); // what is left selected was not deletable by this person
+  if (openOne && !entries.includes(openOne)) navigate(libraryHash()); // the open book folds away, the library takes over
+  refreshView();
+  loadPeople(true);
+  if (failed) syncLibrary();
+});
+
+$('[data-sel-delete]').addEventListener('click', () => {
+  const mine = [...selected].filter(canManage);
+  if (!mine.length || bulkBusy) return;
+  deleteFromBar = true;
+  askDelete(mine);
+  const others = selected.size - mine.length;
+  if (others) $('[data-delete-text]').textContent += others === 1 ? ' The other selected book is not yours and will stay.' : ` The other ${others} selected books are not yours and will stay.`;
 });
 
 // --- Header / footer follow the open book -----------------------------------
@@ -689,6 +859,7 @@ async function showLibrary(token) {
 
 function openBook(route) {
   const { entry } = route;
+  clearSelection();
   const book = ensureBook(entry);
   book.el.inert = false; // may still be locked by a library exit that this route cancels
   if (active !== book) {
@@ -748,6 +919,7 @@ modeButtons.forEach((b) => b.addEventListener('click', () => active && !active.e
 addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open]')) return; // a dialog handles Escape itself
   if (e.key === 'Escape' && menuEntry) return closeCardMenu();
+  if (e.key === 'Escape' && selected.size && !profileOpen() && !uploadOpen()) return clearSelection();
   if (e.key === 'Escape' && menuIsOpen()) return closePeopleMenu();
   if (e.key === 'Escape' && profileOpen()) return closeProfile();
   if (e.key === 'Escape' && uploadOpen()) return uploader.busy || closeUpload();

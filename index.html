@@ -164,6 +164,7 @@
 
     <!-- The small menu behind the three dots on a card (one shared element). -->
     <div class="card-menu" role="menu" data-card-menu hidden>
+      <button type="button" class="menu-item" role="menuitem" data-act="select">Select</button>
       <button type="button" class="menu-item" role="menuitem" data-act="rename">Rename</button>
       <button type="button" class="menu-item" role="menuitem" data-act="download">Download PDF</button>
       <button type="button" class="menu-item menu-item--danger" role="menuitem" data-act="delete">Delete</button>
@@ -198,6 +199,16 @@
         <button type="button" class="chip chip-danger" data-delete-confirm>Delete</button>
       </div>
     </dialog>
+
+    <!-- Appears when books are selected -->
+    <div class="selbar" role="toolbar" aria-label="Selected leporellos" data-selbar hidden>
+      <span class="selbar-count" data-sel-count>0 selected</span>
+      <button type="button" class="selbar-all" data-sel-all>Select all</button>
+      <span class="selbar-sep" aria-hidden="true"></span>
+      <button type="button" class="chip" data-sel-download>Download</button>
+      <button type="button" class="chip chip-danger" data-sel-delete>Delete</button>
+      <button type="button" class="selbar-close" data-sel-clear aria-label="Clear selection" title="Clear selection">✕</button>
+    </div>
 
     <div class="toast" role="status" aria-live="polite" data-toast><span class="toast-icon" aria-hidden="true"></span><span class="toast-text"></span></div>
 
