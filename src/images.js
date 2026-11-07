@@ -22,8 +22,8 @@ for (const source of [`${API_URL}/library`, url('library.json')]) {
 export const libraryError = !library;
 library ||= { books: [] };
 
-/** The books, with every storage key turned into a full URL. */
-export const books = library.books.map((b) => ({
+/** A book from the API with every storage key turned into a full URL. */
+export const normalizeBook = (b) => ({
   ...b,
   pdfUrl: b.pdf ? url(b.pdf) : null,
   pages: b.pages.map((p, i) => ({
@@ -32,7 +32,16 @@ export const books = library.books.map((b) => ({
     original: url(p.original),
     variants: Object.fromEntries(Object.entries(p.variants).map(([fmt, list]) => [fmt, list.map((v) => ({ ...v, src: url(v.src) }))])),
   })),
-}));
+});
+
+export const books = library.books.map(normalizeBook);
+
+/** The current books, straight from the API (no cache), for picking up what others published. */
+export async function fetchBooks() {
+  const res = await fetch(`${API_URL}/library`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`library: ${res.status}`);
+  return (await res.json()).books.map(normalizeBook);
+}
 
 const srcset = (list) => list.map((v) => `${v.src} ${v.w}w`).join(', ');
 

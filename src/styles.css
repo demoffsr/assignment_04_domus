@@ -121,15 +121,16 @@ button:disabled { opacity: 0.25; cursor: default; }
 .stage { position: relative; min-height: 0; }
 /* The stage is only focusable so the skip link can land on it; it is not a control. */
 .stage:focus, .stage:focus-visible { outline: none; }
-/* One .book per leporello. All of them are full-stage size; the library only
-   moves and scales them (transform, nothing that re-lays-out). */
+/* One .book per opened leporello (built on first open); only the current one shows. */
 .book {
   position: absolute; inset: 0;
-  transform: translate3d(var(--x, 0px), var(--y, 0px), 0) scale(var(--s, 1));
-  transition: transform 0.35s var(--ease), opacity 0.45s var(--ease), visibility 0s;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 0.3s var(--ease), visibility 0s linear 0.3s;
 }
-body.zooming .book { transition-duration: 0.9s, 0.45s, 0s; }
-body.booting .book, body.booting .people, body.booting .credits, body.booting .wordmark, body.booting .modes, body.booting .settings, body.booting .unfold-btn, body.booting .library { transition: none !important; }
+.book.current { opacity: 1; visibility: visible; pointer-events: auto; transition: none; }
+.book.current.hold { opacity: 0; } /* while the flat cover is still flying in */
+.book.snap { transition: none; } /* hidden in one frame when the flat cover takes over */
+body.booting .book, body.booting .shelf, body.booting .shelf-fade, body.booting .people, body.booting .credits, body.booting .wordmark, body.booting .modes, body.booting .settings, body.booting .unfold-btn { transition: none !important; }
 .view {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
@@ -301,17 +302,6 @@ body.booting .book, body.booting .people, body.booting .credits, body.booting .w
 .pill:hover { box-shadow: inset 0 0 0 1px var(--fg); }
 
 /* ── Library ─────────────────────────────────────────────── */
-/* Library: every book stands closed at its own spot (--lx/--ly/--ls come from JS). */
-body[data-view='library'] .book { --x: var(--lx, 0px); --y: var(--ly, 0px); --s: var(--ls, 0.6); pointer-events: none; }
-body[data-view='library'] .book.hover { --y: calc(var(--ly, 0px) - 10px); }
-body[data-view='library'] .unfold-btn { opacity: 0; transition-delay: 0s; }
-/* Book: the chosen one comes forward, the rest slide aside and fade. */
-body[data-view='book'] .book.current { --x: 0px; --y: 0px; --s: 1; }
-body[data-view='book'] .book:not(.current) {
-  --x: calc(var(--lx, 0px) * 2.4); --y: var(--ly, 0px); --s: var(--ls, 0.6);
-  opacity: 0; visibility: hidden; pointer-events: none;
-  transition: transform 0.9s var(--ease), opacity 0.45s var(--ease), visibility 0s linear 0.45s;
-}
 /* Book chrome appears once the book has come forward. */
 .modes, .settings, .credits { transition: opacity 0.4s var(--ease) 0.45s; }
 body[data-view='library'] .modes, body[data-view='library'] .settings, body[data-view='library'] .credits {
@@ -322,67 +312,110 @@ body[data-view='library'] .modes, body[data-view='library'] .settings, body[data
 .wordmark { opacity: 0; visibility: hidden; transition: opacity 0.25s var(--ease), visibility 0s linear 0.25s; }
 body[data-view='library'] .wordmark { opacity: 1; visibility: visible; transition: opacity 0.4s var(--ease) 0.5s; }
 
-.library { position: absolute; inset: 0; z-index: 2; pointer-events: none; transition: opacity 0.3s var(--ease) 0.5s; }
-body[data-view='book'] .library { opacity: 0; visibility: hidden; transition: opacity 0.3s var(--ease), visibility 0s linear 0.3s; }
-.lib-hit {
-  position: absolute; left: 50%; top: 50%;
-  width: var(--hw, 0px); height: var(--hh, 0px);
-  transform: translate3d(calc(var(--hx, 0px) - 50%), calc(var(--hy, 0px) - 50%), 0);
-  pointer-events: auto; cursor: pointer;
-  border-radius: 4px;
+/* Flat covers, up to four to a row, centred. */
+.shelf {
+  position: absolute; inset: 0;
+  padding: 120px clamp(16px, 3vw, 32px) 104px; /* room under the people bar, and for the last label */
+  /* The covers dissolve towards the top and bottom edge instead of being cut. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 84px, #000 calc(100% - 72px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 84px, #000 calc(100% - 72px), transparent 100%);
+  overflow-x: hidden; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  transition: opacity 0.35s var(--ease) 0.3s;
 }
-.lib-label {
-  position: absolute; left: 50%; top: calc(100% + 18px);
-  transform: translateX(-50%);
-  display: grid; justify-items: center; gap: 2px;
-  white-space: nowrap; text-align: center;
-  color: var(--dim);
-  transition: color 0.25s;
+body[data-view='book'] .shelf, body[data-view='book'] .shelf-fade { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.3s var(--ease), visibility 0s linear 0.3s; }
+/* A light blur that peaks in the middle of the fade zone and eases out on both sides. */
+.shelf-fade {
+  position: absolute; left: 0; right: 0; z-index: 2; pointer-events: none;
+  -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 45%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 45%, transparent);
+  transition: opacity 0.35s var(--ease) 0.3s;
 }
+.shelf-fade--top { top: 0; height: 112px; }
+.shelf-fade--bottom { bottom: 0; height: 96px; transform: scaleY(-1); }
+/* Covers start at the left edge (in line with the logo) and flow into as many columns as fit. */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 60px 48px; justify-content: start; }
+.card {
+  min-width: 0;
+  display: flex; flex-direction: column; justify-content: flex-start; align-self: start;
+  text-align: left; cursor: pointer; scroll-margin: 112px 0 96px;
+}
+.card.lifted { visibility: hidden; } /* the flying cover stands in for it */
+@media (max-width: 700px) { .grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 40px 20px; } }
+@media (max-width: 400px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+.cover {
+  position: relative; display: block; aspect-ratio: 148 / 210;
+  border-radius: 3px; overflow: hidden;
+  box-shadow: 0 22px 40px -16px rgba(0, 0, 0, 0.7);
+  transition: transform 0.35s var(--ease);
+}
+.cover::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09); pointer-events: none; }
+.cover picture, .cover img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.cover img { object-fit: cover; opacity: 0; transition: opacity 0.35s ease; user-select: none; -webkit-user-drag: none; }
+.cover img.loaded { opacity: 1; }
+.card:hover .cover, .card:focus-visible .cover { transform: translateY(-6px); }
+.card-label { display: grid; gap: 2px; margin-top: 14px; color: var(--dim); }
+.card-label strong { color: var(--fg); font-weight: 600; letter-spacing: 0.01em; }
 .lib-author { color: var(--fg); opacity: 0.72; font-size: 12.5px; }
-.lib-label strong { color: var(--fg); font-weight: 600; letter-spacing: 0.01em; }
-.lib-hit:hover .lib-label .dim, .lib-hit:focus-visible .lib-label .dim { color: var(--fg); }
+.card:hover .card-label .dim, .card:focus-visible .card-label .dim { color: var(--fg); }
+.flyer { position: fixed; z-index: 30; transform-origin: 0 0; border-radius: 3px; overflow: hidden; pointer-events: none; box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.75); will-change: transform; }
+.flyer img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-/* ── People ──────────────────────────────────────────────── */
+/* ── People filter: All · Mine · a searchable list ──────────── */
 .people {
-  position: absolute; top: 8px; left: 0; right: 0; z-index: 3;
-  display: flex; gap: 8px;
+  position: absolute; top: 8px; left: 0; right: 0; z-index: 4;
+  display: flex; justify-content: center;
   padding: 4px clamp(16px, 3vw, 32px);
-  overflow-x: auto; scrollbar-width: none;
+  pointer-events: none; /* only the control itself takes clicks, the shelf under it still scrolls */
   transition: opacity 0.3s var(--ease) 0.5s;
 }
-.people::-webkit-scrollbar { display: none; }
-.people > :first-child { margin-left: auto; }  /* centred when it fits, scrollable when not */
-.people > :last-child { margin-right: auto; }
+.people > * { pointer-events: auto; }
 body[data-view='book'] .people { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.3s var(--ease), visibility 0s linear 0.3s; }
-.person {
-  flex: none; display: inline-flex; align-items: center; gap: 8px;
-  padding: 5px 12px 5px 5px; border-radius: 999px; white-space: nowrap;
-  color: var(--dim); box-shadow: inset 0 0 0 1px var(--faint);
-  transition: color 0.2s, background-color 0.2s, box-shadow 0.2s;
+.people-wrap { position: relative; }
+.filter-seg {
+  display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px;
+  background: rgba(14, 14, 14, 0.6); box-shadow: inset 0 0 0 1px var(--faint);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
 }
-.person--all { padding-left: 14px; }
-.person:hover { color: var(--fg); }
-.person[aria-pressed='true'] { color: var(--fg); background: rgba(255, 255, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22); }
-.avatar { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; color: #fff; }
-.person .count { font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.filter-seg button { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; color: var(--dim); white-space: nowrap; transition: color 0.2s, background-color 0.2s; }
+.filter-seg button:hover { color: var(--fg); }
+.filter-seg button[aria-pressed='true'] { color: var(--fg); background: rgba(255, 255, 255, 0.1); }
+.filter-seg [data-f='person'] { max-width: 210px; }
+.f-label { overflow: hidden; text-overflow: ellipsis; }
+.f-chevron { flex: none; transition: transform 0.2s var(--ease); }
+[aria-expanded='true'] > .f-chevron { transform: rotate(180deg); }
+.count { font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.people-menu {
+  position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  width: min(320px, calc(100vw - 32px)); padding: 8px;
+  background: #0e0e0e; border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--faint), 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.people-search {
+  width: 100%; height: 38px; padding: 0 12px; margin-bottom: 6px;
+  font: inherit; color: var(--fg); border: 0; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px var(--faint);
+}
+.people-search:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--blue); }
+.people-list { max-height: min(320px, 50vh); overflow-y: auto; scrollbar-width: thin; }
+.person-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border-radius: 9px; text-align: left; color: var(--fg); transition: background-color 0.15s; }
+.person-row:hover, .person-row:focus-visible { background: rgba(255, 255, 255, 0.08); outline: none; }
+.person-row[aria-selected='true'] { background: rgba(255, 255, 255, 0.12); }
+.person-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people-none { margin: 0; padding: 10px 8px; font-size: 13px; }
+.avatar { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; color: #fff; }
 .library-empty { position: absolute; left: 50%; top: 50%; z-index: 1; margin: 0; transform: translate(-50%, -50%); text-align: center; }
 body[data-view='book'] .library-empty { display: none; }
-/* A book that is not on the shelf being shown slides aside. */
-body[data-view='library'] .book.filtered-out {
-  opacity: 0; visibility: hidden; pointer-events: none;
-  transition: transform 0.5s var(--ease), opacity 0.35s var(--ease), visibility 0s linear 0.35s;
-}
-
 /* ── Sign-in page ────────────────────────────────────────── */
-.auth-page, .profile-page {
+.auth-page, .profile-page, .upload-page {
   position: fixed; inset: 0; z-index: 40;
   display: none; flex-direction: column; align-items: center;
   padding: 64px 24px 32px;
   background: var(--backdrop);
   overflow-y: auto;
 }
-html.signed-out .auth-page, html.profile-open .profile-page { display: flex; }
+html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page { display: flex; }
 .auth-brand {
   position: absolute; top: 20px; left: clamp(16px, 3vw, 32px);
   margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;
@@ -442,6 +475,47 @@ html.signed-out .auth-page, html.profile-open .profile-page { display: flex; }
 .chip-link:hover { box-shadow: none; color: var(--fg); }
 #username-form { margin-top: 16px; }
 
+/* Add a leporello */
+.add-btn { padding: 6px 14px; }
+body[data-view='book'] .add-btn { display: none; }
+.upload-card { width: min(720px, 100%); margin: auto; }
+.upload-card label { display: grid; gap: 6px; margin-bottom: 16px; font-size: 13px; font-weight: 500; }
+.upload-card label small { font-size: 12px; font-weight: 400; }
+.upload-card input:not([type='checkbox']), .upload-card select {
+  font: inherit; font-size: 15px; font-weight: 400; color: var(--fg);
+  height: 44px; padding: 0 14px; border: 0; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px var(--faint);
+}
+.upload-card input:focus-visible, .upload-card select:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--blue); }
+.upload-card form { display: grid; max-width: 420px; }
+.upload-card label.dropzone {
+  display: grid; place-items: center; gap: 6px; text-align: center;
+  padding: 44px 20px; border-radius: 14px; cursor: pointer;
+  box-shadow: inset 0 0 0 1.5px var(--faint);
+  transition: box-shadow 0.2s, background-color 0.2s;
+}
+.dropzone strong { font-size: 16px; font-weight: 600; }
+.upload-card label.dropzone:hover, .upload-card label.dropzone.dragover { background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1.5px var(--blue); }
+.upload-status { min-height: 1.35em; margin: 12px 0; font-size: 13px; }
+.upload-card .section-note { margin: 10px 0 24px; }
+.upload-card .profile-back { width: auto; padding-left: 0; text-align: left; }
+.upload-options { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 24px; margin-bottom: 14px; }
+.upload-options label { margin: 0; }
+.upload-options label.check { display: flex; align-items: center; gap: 8px; height: 44px; font-weight: 400; }
+.upload-options input[type='checkbox'] { accent-color: var(--blue); margin: 0; }
+.upload-summary { margin: 0 0 12px; font-size: 13px; color: var(--fg); }
+.upload-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.thumb-page { position: relative; aspect-ratio: 148 / 210; border-radius: 4px; overflow: hidden; background: #151515; transition: opacity 0.2s, transform 0.2s var(--ease); }
+.thumb-page canvas { display: block; width: 100%; height: 100%; }
+.thumb-page span {
+  position: absolute; left: 4px; bottom: 4px; min-width: 20px; padding: 1px 5px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72); font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.thumb-page[aria-pressed='false'] { opacity: 0.28; }
+.thumb-page:hover { transform: translateY(-2px); }
+.upload-page.is-busy .thumb-page { pointer-events: none; }
+@media (max-width: 700px) { .add-long { display: none; } }
+
 /* ── Zoom ────────────────────────────────────────────────── */
 .zoom {
   position: fixed; inset: 0; z-index: 20;
@@ -482,7 +556,7 @@ html.signed-out .auth-page, html.profile-open .profile-page { display: flex; }
   :root { --top: 92px; --bottom: 52px; }
   .top { grid-template-columns: 1fr auto; grid-template-rows: auto auto; row-gap: 10px; padding-top: 10px; }
   .modes { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
-  .lib-label { font-size: 12px; }
+  .card-label { font-size: 12px; }
   .modes button { padding: 6px 10px; }
   .lep.open:not(.animating) { scroll-snap-type: x mandatory; }
   .hint { display: none; }

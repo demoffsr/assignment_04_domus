@@ -1,8 +1,8 @@
 import './styles.css';
-import { books, libraryError } from './images.js';
+import { books, libraryError, fetchBooks, createPicture, hydrate } from './images.js';
 import { createBook } from './book.js';
-import { sheetSize } from './leporello.js';
 import { auth } from './auth.js';
+import { createUploader } from './upload.js';
 
 if (libraryError) {
   document.querySelector('[data-hint]').textContent = 'The library could not be loaded. Try again in a moment.';
@@ -36,97 +36,201 @@ const zigzag = $('#opt-zigzag');
 const modeButtons = $$('.modes [data-mode]');
 let vectorPref = prefs.get('vector', false);
 
-// --- Books -----------------------------------------------------------------
-const shelf = books.map((data) =>
-  createBook(data, {
-    stage,
-    bookTpl: $('#book-tpl'),
-    zoomTpl: $('#zoom-tpl'),
-    reducedMotion,
-    mobile,
-    vectorChecked: () => vector.checked,
-    setHint: (t) => (hint.textContent = t),
-    onMode: (m) => {
-      document.body.dataset.mode = m;
-      modeButtons.forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === m));
-    },
-    replaceHash: (h) => {
-      history.replaceState(null, '', `#${h}`);
-      lastHash = `#${h}`;
-    },
-  }),
-);
-let active = null; // the open book; null = the library
+// --- Books -------------------------------------------------------------------
+const bookCtx = {
+  stage,
+  bookTpl: $('#book-tpl'),
+  zoomTpl: $('#zoom-tpl'),
+  reducedMotion,
+  mobile,
+  vectorChecked: () => vector.checked,
+  setHint: (t) => (hint.textContent = t),
+  onMode: (m) => {
+    document.body.dataset.mode = m;
+    modeButtons.forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === m));
+  },
+  replaceHash: (h) => {
+    history.replaceState(null, '', `#${h}`);
+    lastHash = `#${h}`;
+  },
+};
+const entries = []; // one per book: { id, data, card, book }. The 3D book is built when it is first opened.
+let active = null; // the open book (its 3D view); null = the library
 let lastHash = null; // the hash applyRoute last acted on (popstate and hashchange both fire for one navigation)
 let routeToken = 0; // a newer route cancels a library exit that is still folding
 
-// --- Library: the books stand side by side, a click brings one forward ------
-const GAP = 1.35; // distance between book centres, in book widths
+// --- Library: flat covers in a grid; the 3D book only exists once it is opened ----
 let libraryFilter = null; // slug of the person whose shelf is shown; null = everyone
-const isShown = (book) => !libraryFilter || book.data.authorSlug === libraryFilter;
-const hits = shelf.map((book) => {
-  const hit = document.createElement('button');
-  hit.type = 'button';
-  hit.className = 'lib-hit';
-  hit.setAttribute('aria-label', `Open ${book.data.title}`);
-  hit.innerHTML = '<span class="lib-label"><strong></strong><span class="lib-author"></span><span class="dim"></span></span>';
-  $('strong', hit).textContent = book.data.title;
-  $('.lib-author', hit).textContent = book.data.author || '';
-  $('.dim', hit).textContent = book.data.meta || '';
-  hit.addEventListener('click', () => navigate(`${book.id}/folded`));
-  const lift = (on) => () => book.el.classList.toggle('hover', on);
-  hit.addEventListener('pointerenter', lift(true));
-  hit.addEventListener('pointerleave', lift(false));
-  hit.addEventListener('focus', lift(true));
-  hit.addEventListener('blur', lift(false));
-  $('[data-library]').append(hit);
-  return hit;
-});
+const isShown = (entry) => !libraryFilter || entry.data.authorSlug === libraryFilter;
+const shelfEl = $('[data-shelf]');
+const grid = $('[data-grid]');
 
-/** Sets where each closed book stands (and where its click target is). Pure maths, no layout is animated. */
-function layoutLibrary() {
-  if (!shelf.length) return;
-  const lepRoot = $('[data-lep]', shelf[0].el);
-  const vw = lepRoot.clientWidth;
-  const vh = lepRoot.clientHeight;
-  if (!vw) return;
-  const { w, h } = sheetSize(vw, vh);
-  const shown = shelf.filter(isShown); // the others slide out and fade
-  const n = Math.max(1, shown.length);
-  const s = Math.min(0.62, (stage.clientWidth * 0.9) / (w * (GAP * (n - 1) + 1)));
-  const lift = -18; // leaves room for the label under the books
-  const centreY = (vh - stage.clientHeight) / 2; // book centre relative to the stage centre, unscaled
-  shelf.forEach((book, i) => {
-    const k = shown.indexOf(book);
-    book.el.classList.toggle('filtered-out', k < 0);
-    hits[i].hidden = k < 0;
-    const x = k >= 0 ? (k - (n - 1) / 2) * w * s * GAP : (i - (shelf.length - 1) / 2) * w * s * GAP * 2.4;
-    book.el.style.setProperty('--lx', `${x}px`);
-    book.el.style.setProperty('--ly', `${lift}px`);
-    book.el.style.setProperty('--ls', s);
-    hits[i].style.setProperty('--hx', `${x}px`);
-    hits[i].style.setProperty('--hy', `${centreY * s + lift}px`);
-    hits[i].style.setProperty('--hw', `${w * s * 1.1}px`);
-    hits[i].style.setProperty('--hh', `${h * s}px`);
+// Covers load as they come near the screen.
+const coverIO = new IntersectionObserver((list) => {
+  list.forEach((it) => {
+    if (!it.isIntersecting) return;
+    hydrate($('picture', it.target));
+    coverIO.unobserve(it.target);
   });
+}, { root: shelfEl, rootMargin: '400px' });
+
+const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 150));
+
+function makeCard(entry) {
+  const { data } = entry;
+  const card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'card';
+  card.setAttribute('aria-label', `Open ${data.title}`);
+  card.innerHTML = '<span class="cover"></span><span class="card-label"><strong></strong><span class="lib-author"></span><span class="dim"></span></span>';
+  const first = data.pages[0];
+  if (first) {
+    const { r, g, b } = first.paper || {};
+    $('.cover', card).style.background = `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
+    $('.cover', card).append(createPicture(first, { sizes: '(max-width: 700px) 46vw, 260px' }));
+  }
+  $('strong', card).textContent = data.title;
+  $('.lib-author', card).textContent = data.author || '';
+  $('.dim', card).textContent = data.meta || '';
+  card.addEventListener('click', () => navigate(`${data.id}/folded`));
+  // Build the 3D book while the pointer is on its way to the click.
+  const warm = () => idle(() => ensureBook(entry));
+  card.addEventListener('pointerenter', warm, { once: true });
+  card.addEventListener('focus', warm, { once: true });
+  grid.append(card);
+  coverIO.observe(card);
+  return card;
 }
-new ResizeObserver(layoutLibrary).observe(stage);
-layoutLibrary();
+
+function ensureBook(entry) {
+  if (!entry.book) {
+    const book = createBook(entry.data, bookCtx);
+    book.el.inert = true;
+    book.lep.setZigzag(zigzag.checked, true);
+    book.lep.measure(); // sizes are known now, not on the next frame
+    entry.book = book;
+  }
+  return entry.book;
+}
+
+function addEntry(data) {
+  const entry = { id: data.id, data, card: null, book: null };
+  entry.card = makeCard(entry);
+  entries.push(entry);
+  return entry;
+}
+books.forEach(addEntry);
+
+function renderShelf() {
+  entries.forEach((e) => (e.card.hidden = !isShown(e)));
+}
+
+/** Picks up books that were published since this page loaded. */
+async function syncLibrary() {
+  let fresh;
+  try {
+    fresh = await fetchBooks();
+  } catch {
+    return;
+  }
+  const added = fresh.filter((data) => !entries.some((e) => e.id === data.id));
+  if (!added.length) return;
+  added.forEach(addEntry);
+  renderShelf();
+  renderPeople();
+  renderChrome();
+}
+
+// --- Flying between the grid and the 3D book ---------------------------------------
+const flyers = new Set();
+function clearFlyers() {
+  flyers.forEach((f) => f.remove());
+  flyers.clear();
+  entries.forEach((e) => e.card.classList.remove('lifted'));
+}
+const coverBox = (entry) => $('.cover', entry.card).getBoundingClientRect();
+
+function makeFlyer(entry, box) {
+  const el = document.createElement('div');
+  el.className = 'flyer';
+  el.style.cssText = `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;background:${$('.cover', entry.card).style.background}`;
+  const src = $('img', entry.card)?.currentSrc;
+  if (src) {
+    const img = new Image();
+    img.alt = '';
+    img.src = src;
+    el.append(img);
+  }
+  document.body.append(el);
+  flyers.add(el);
+  return el;
+}
+
+const glide = (el, a, b, ms) =>
+  el.animate(
+    [{ transform: 'translate(0, 0) scale(1, 1)' }, { transform: `translate(${b.left - a.left}px, ${b.top - a.top}px) scale(${b.width / a.width}, ${b.height / a.height})` }],
+    { duration: ms, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', fill: 'forwards' },
+  ).finished;
+
+/** Waits until the 3D cover has its picture on screen, so swapping the flat cover for it shows no flash. */
+async function coverSettled(book) {
+  const img = $('.panel img', book.el);
+  if (!img || img.classList.contains('loaded')) return;
+  const t0 = performance.now();
+  while (!img.classList.contains('loaded') && performance.now() - t0 < 2500) await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 380)); // the picture fades in over 0.35 s
+}
+
+/**
+ * The clicked cover glides onto the face of the closed stack (shown straight on), the
+ * stack takes its place in one frame, and then the 3D scene itself turns into its resting view.
+ */
+async function flyIn(entry, book) {
+  clearFlyers();
+  const from = coverBox(entry);
+  book.lep.setTilt(0);
+  const to = book.lep.coverRect();
+  const el = makeFlyer(entry, from);
+  entry.card.classList.add('lifted');
+  try {
+    await glide(el, from, to, 750);
+    await coverSettled(book);
+  } catch (err) {
+    if (err?.name !== 'AbortError') console.warn('[tubus] fly in', err); // an abort means a newer route removed the flyer
+  }
+  book.el.classList.remove('hold');
+  if (!flyers.delete(el)) return book.lep.setTilt(1);
+  el.remove();
+  await book.lep.tiltTo(1, 950);
+}
+
+/** The closed stack (already turned face-on) becomes the flat cover and glides back to its place. */
+async function flyOut(entry, from) {
+  clearFlyers();
+  if (entry.card.hidden) return;
+  entry.card.scrollIntoView({ block: 'nearest' });
+  const to = coverBox(entry);
+  const el = makeFlyer(entry, from); // exactly over the 3D cover, which disappears in the same frame
+  entry.card.classList.add('lifted');
+  try {
+    await glide(el, from, to, 750);
+  } catch {}
+  if (flyers.delete(el)) {
+    el.remove();
+    entry.card.classList.remove('lifted');
+  }
+}
 
 // --- Header / footer follow the open book -----------------------------------
 const titleEl = $('[data-title]');
 const authorEl = $('[data-author]');
 const metaEl = $('[data-meta]');
 const download = $('[data-download]');
-const countEl = $('[data-count]');
 const emptyEl = $('[data-library-empty]');
 
 function renderChrome() {
   const data = active?.data;
-  const nb = shelf.length;
-  countEl.textContent = `${nb} leporello${nb === 1 ? '' : 's'}${people.length ? ` · ${people.length} ${people.length === 1 ? 'person' : 'people'}` : ''}`;
-
-  const shown = shelf.filter(isShown).length;
+  const shown = entries.filter(isShown).length;
   const who = people.find((p) => p.slug === libraryFilter);
   emptyEl.hidden = shown > 0;
   emptyEl.textContent = libraryFilter ? `${who?.name || 'This person'} has not published anything yet.` : 'No leporellos yet.';
@@ -162,36 +266,123 @@ function avatarColour(slug) {
   return `hsl(${h} 38% 34%)`;
 }
 
-function personChip(slug, name, count, me = false) {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = slug ? 'person' : 'person person--all';
-  b.setAttribute('aria-pressed', slug === libraryFilter);
-  if (me) b.title = `${name} (you)`;
-  if (slug) {
-    const av = document.createElement('span');
-    av.className = 'avatar';
-    av.textContent = initials(name);
-    av.style.background = avatarColour(slug);
-    b.append(av);
-  }
-  const label = document.createElement('span');
-  label.textContent = slug ? name : 'All';
+const norm = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const CHEVRON = '<svg class="f-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+
+// The filter is a small control, so it stays tidy with fifteen people: All · Mine · a searchable list.
+peopleNav.innerHTML = `
+  <div class="people-wrap">
+    <div class="filter-seg" role="group" aria-label="Show">
+      <button type="button" data-f="all">All <span class="count"></span></button>
+      <button type="button" data-f="mine">Mine <span class="count"></span></button>
+      <button type="button" data-f="person" aria-haspopup="listbox" aria-expanded="false"><span class="f-label">People</span>${CHEVRON}</button>
+    </div>
+    <div class="people-menu" hidden>
+      <input type="search" class="people-search" placeholder="Search people" aria-label="Search people" autocomplete="off" spellcheck="false" />
+      <div class="people-list" role="listbox" aria-label="People"></div>
+      <p class="people-none dim" hidden>No one found.</p>
+    </div>
+  </div>`;
+const fAll = $('[data-f="all"]', peopleNav);
+const fMine = $('[data-f="mine"]', peopleNav);
+const fPerson = $('[data-f="person"]', peopleNav);
+const peopleMenu = $('.people-menu', peopleNav);
+const peopleSearch = $('.people-search', peopleNav);
+const peopleList = $('.people-list', peopleNav);
+const peopleNone = $('.people-none', peopleNav);
+
+const menuIsOpen = () => !peopleMenu.hidden;
+function closePeopleMenu() {
+  peopleMenu.hidden = true;
+  fPerson.setAttribute('aria-expanded', 'false');
+}
+function openPeopleMenu() {
+  peopleSearch.value = '';
+  filterPeopleList();
+  peopleMenu.hidden = false;
+  fPerson.setAttribute('aria-expanded', 'true');
+  peopleSearch.focus({ preventScroll: true });
+}
+const visibleRows = () => $$('.person-row:not([hidden])', peopleList);
+
+function filterPeopleList() {
+  const q = norm(peopleSearch.value.trim());
+  let shown = 0;
+  $$('.person-row', peopleList).forEach((row) => {
+    const ok = !q || norm(row.dataset.name).includes(q);
+    row.hidden = !ok;
+    if (ok) shown++;
+  });
+  peopleNone.hidden = shown > 0;
+}
+
+function personRow(p) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'person-row';
+  row.setAttribute('role', 'option');
+  row.setAttribute('aria-selected', p.slug === libraryFilter);
+  row.dataset.name = p.name;
+  const av = document.createElement('span');
+  av.className = 'avatar';
+  av.textContent = initials(p.name);
+  av.style.background = avatarColour(p.slug);
+  const name = document.createElement('span');
+  name.className = 'person-name';
+  name.textContent = p.me ? `${p.name} (you)` : p.name;
   const n = document.createElement('span');
   n.className = 'count';
-  n.textContent = count;
-  b.append(label, n);
-  b.addEventListener('click', () => navigate(slug ? `u/${slug}` : ''));
-  return b;
+  n.textContent = p.books;
+  row.append(av, name, n);
+  row.addEventListener('click', () => {
+    closePeopleMenu();
+    navigate(`u/${p.slug}`);
+  });
+  return row;
 }
 
 function renderPeople() {
-  peopleNav.replaceChildren(
-    personChip(null, 'All', shelf.length),
-    ...people.map((p) => personChip(p.slug, p.name, p.books, p.me)),
-  );
+  const me = people.find((p) => p.me);
+  const other = libraryFilter && libraryFilter !== me?.slug ? people.find((p) => p.slug === libraryFilter) : null;
+
+  fAll.setAttribute('aria-pressed', libraryFilter === null);
+  $('.count', fAll).textContent = entries.length;
+  fMine.hidden = !me;
+  fMine.setAttribute('aria-pressed', !!me && libraryFilter === me.slug);
+  $('.count', fMine).textContent = me?.books ?? 0;
+  fPerson.setAttribute('aria-pressed', !!other);
+  $('.f-label', fPerson).textContent = other ? other.name : 'People';
+
+  // Me first, then everyone else A–Z.
+  const sorted = [...people].sort((a, b) => Number(b.me) - Number(a.me) || a.name.localeCompare(b.name));
+  peopleList.replaceChildren(...sorted.map(personRow));
+  filterPeopleList();
   peopleNav.hidden = !auth.user || !people.length;
 }
+
+fAll.addEventListener('click', () => navigate(''));
+fMine.addEventListener('click', () => {
+  const me = people.find((p) => p.me);
+  if (me) navigate(`u/${me.slug}`);
+});
+fPerson.addEventListener('click', () => (menuIsOpen() ? closePeopleMenu() : openPeopleMenu()));
+peopleSearch.addEventListener('input', filterPeopleList);
+peopleSearch.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') visibleRows()[0]?.click();
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    visibleRows()[0]?.focus();
+  }
+});
+peopleList.addEventListener('keydown', (e) => {
+  const rows = visibleRows();
+  const i = rows.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') rows[Math.min(rows.length - 1, i + 1)]?.focus();
+  else if (e.key === 'ArrowUp') (i <= 0 ? peopleSearch : rows[i - 1]).focus();
+  else return;
+  e.preventDefault();
+});
+document.addEventListener('click', (e) => menuIsOpen() && !e.target.closest('.people-wrap') && closePeopleMenu());
 
 async function loadPeople(force = false) {
   if (!auth.user || (!force && Date.now() - peopleAt < 20000)) return;
@@ -207,10 +398,10 @@ async function loadPeople(force = false) {
 
 function setFilter(slug) {
   libraryFilter = slug;
-  layoutLibrary();
+  renderShelf();
+  shelfEl.scrollTop = 0;
   renderPeople();
   renderChrome();
-  peopleNav.querySelector('[aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 const libraryHash = () => (libraryFilter ? `u/${libraryFilter}` : '');
 
@@ -222,21 +413,14 @@ function parseHash() {
   const parts = raw.split('/');
   if (parts[0] === 'u' && parts[1]) return { person: decodeURIComponent(parts[1]) };
   // Books are found by id, or by the slug of their title (old links: #deliberation/unfolded).
-  let book = shelf.find((x) => x.id === parts[0] || slugOf(x.data.title) === parts[0]);
-  const rest = book ? parts[1] : raw; // older links (#page-5, #unfolded) belong to the first book
+  let entry = entries.find((x) => x.id === parts[0] || slugOf(x.data.title) === parts[0]);
+  const rest = entry ? parts[1] : raw; // older links (#page-5, #unfolded) belong to the first book
   const page = (rest || '').match(/^page-(\d+)$/);
-  if (!book && !page && rest !== 'folded' && rest !== 'unfolded') return null;
-  book ||= shelf[0];
-  if (!book) return null;
-  if (page) return { book, mode: 'pages', page: +page[1] - 1 };
-  return { book, mode: rest === 'unfolded' ? 'unfolded' : 'folded' };
-}
-
-let zoomTimer = 0;
-function travel() {
-  document.body.classList.add('zooming');
-  clearTimeout(zoomTimer);
-  zoomTimer = setTimeout(() => document.body.classList.remove('zooming'), 1000);
+  if (!entry && !page && rest !== 'folded' && rest !== 'unfolded') return null;
+  entry ||= entries[0];
+  if (!entry) return null;
+  if (page) return { entry, mode: 'pages', page: +page[1] - 1 };
+  return { entry, mode: rest === 'unfolded' ? 'unfolded' : 'folded' };
 }
 
 /** Closes an open strip first, then lets the library take over. */
@@ -246,32 +430,50 @@ async function showLibrary(token) {
   leaving.el.inert = true; // no clicks while it closes
   await leaving.foldAway();
   if (token !== routeToken || active !== leaving) return;
+  leaving.close(); // the closed stack, whatever mode the book was in
+  if (!reducedMotion()) {
+    await leaving.lep.tiltTo(0, 600); // turn it face-on, ready to become the flat cover again
+    if (token !== routeToken || active !== leaving) return;
+  }
+  const from = leaving.lep.coverRect();
+  const entry = entries.find((e) => e.book === leaving);
   active = null;
-  travel();
   document.body.dataset.view = 'library';
-  shelf.forEach((b) => {
-    b.el.classList.remove('current');
-    b.el.inert = true;
+  const handOver = entry && !reducedMotion(); // the flat cover takes over at once, no cross-fade
+  if (handOver) leaving.el.classList.add('snap');
+  entries.forEach((e) => {
+    if (!e.book) return;
+    e.book.el.classList.remove('current');
+    e.book.el.inert = true;
   });
-  leaving.close();
+  if (handOver) setTimeout(() => leaving.el.classList.remove('snap'), 80);
   renderChrome();
+  if (entry && !reducedMotion()) flyOut(entry, from);
 }
 
 function openBook(route) {
-  const { book } = route;
+  const { entry } = route;
+  const book = ensureBook(entry);
   book.el.inert = false; // may still be locked by a library exit that this route cancels
   if (active !== book) {
     const from = active;
     from?.close();
     active = book;
-    travel();
     document.body.dataset.view = 'book';
-    shelf.forEach((b) => {
-      b.el.classList.toggle('current', b === book);
-      b.el.inert = b !== book;
+    entries.forEach((e) => {
+      if (!e.book) return;
+      e.book.el.classList.toggle('current', e.book === book);
+      e.book.el.inert = e.book !== book;
     });
     renderChrome();
     if (vector.checked) book.verifyVector();
+    // Coming from the library: the cover flies in (no flight on a page load or with reduced motion).
+    if (!from && !document.body.classList.contains('booting') && !reducedMotion()) {
+      book.el.classList.add('hold'); // the flat cover is in the air; the stack shows once it lands
+      flyIn(entry, book);
+    } else {
+      book.lep.setTilt(1);
+    }
   }
   if (route.page != null) book.goTo(route.page);
   book.setMode(route.mode, { instant: true });
@@ -282,7 +484,7 @@ function applyRoute() {
   lastHash = location.hash;
   const token = ++routeToken;
   const route = parseHash();
-  if (route?.book) return openBook(route);
+  if (route?.entry) return openBook(route);
   setFilter(route?.person ?? null);
   loadPeople();
   showLibrary(token);
@@ -297,14 +499,20 @@ function navigate(hash) {
 addEventListener('hashchange', applyRoute);
 addEventListener('popstate', applyRoute);
 $('[data-back]').addEventListener('click', () => navigate(libraryHash()));
-addEventListener('focus', () => loadPeople());
+addEventListener('focus', () => {
+  loadPeople();
+  syncLibrary();
+});
+setInterval(() => document.visibilityState === 'visible' && auth.user && (loadPeople(), syncLibrary()), 60000);
 
 // --- Mode buttons ---------------------------------------------------------------
 modeButtons.forEach((b) => b.addEventListener('click', () => active && !active.el.inert && active.setMode(b.dataset.mode)));
 
 // --- Keyboard ---------------------------------------------------------------
 addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && menuIsOpen()) return closePeopleMenu();
   if (e.key === 'Escape' && profileOpen()) return closeProfile();
+  if (e.key === 'Escape' && uploadOpen()) return uploader.busy || closeUpload();
   if (!active || active.zoomOpen || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.closest('input, textarea, select')) return;
   if (e.key === 'Escape' && settingsPanel.hidden) {
@@ -336,10 +544,10 @@ addEventListener('keydown', (e) => {
 });
 
 zigzag.checked = prefs.get('zigzag', false);
-shelf.forEach((b) => b.lep.setZigzag(zigzag.checked, true));
+entries.forEach((e) => e.book?.lep.setZigzag(zigzag.checked, true));
 zigzag.addEventListener('change', () => {
   prefs.set('zigzag', zigzag.checked);
-  shelf.forEach((b) => b.lep.setZigzag(zigzag.checked));
+  entries.forEach((e) => e.book?.lep.setZigzag(zigzag.checked));
 });
 
 vector.addEventListener('change', async () => {
@@ -364,6 +572,8 @@ const usernameForm = $('#username-form');
 const nameMessage = $('[data-name-message]');
 const usernameMessage = $('[data-username-message]');
 const profileOpen = () => document.documentElement.classList.contains('profile-open');
+const uploadOpen = () => document.documentElement.classList.contains('upload-open');
+const overlayOpen = () => profileOpen() || uploadOpen();
 let creating = false;
 
 const AUTH_ERRORS = {
@@ -398,7 +608,7 @@ function renderAccount() {
   const user = auth.user;
   const wasOut = document.documentElement.classList.contains('signed-out');
   document.documentElement.classList.toggle('signed-out', !user);
-  appShell.forEach((el) => (el.inert = !user || profileOpen()));
+  appShell.forEach((el) => (el.inert = !user || overlayOpen()));
   accountBtn.textContent = user?.displayName || '';
   closeAccountMenu();
   if (!user && !wasOut) {
@@ -462,6 +672,32 @@ function openProfile() {
   appShell.forEach((el) => (el.inert = true));
   nameForm.elements.displayName.focus({ preventScroll: true });
 }
+
+const uploadPage = $('[data-upload-page]');
+const uploader = createUploader(uploadPage, {
+  onClose: () => closeUpload(),
+  onPublished: async () => {
+    closeUpload();
+    await syncLibrary();
+    await loadPeople(true);
+    if (auth.user) navigate(`u/${auth.user.slug}`); // show the new book on its author's shelf
+  },
+});
+
+function openUpload() {
+  closeAccountMenu();
+  uploader.reset();
+  document.documentElement.classList.add('upload-open');
+  appShell.forEach((el) => (el.inert = true));
+}
+
+function closeUpload() {
+  document.documentElement.classList.remove('upload-open');
+  appShell.forEach((el) => (el.inert = !auth.user));
+  document.activeElement?.blur();
+}
+
+$('[data-upload-open]').addEventListener('click', openUpload);
 
 function closeProfile() {
   document.documentElement.classList.remove('profile-open');
@@ -555,7 +791,6 @@ renderAccount();
 auth.refresh();
 
 // --- Start ----------------------------------------------------------------------
-shelf.forEach((b) => (b.el.inert = true));
 renderChrome();
 applyRoute();
 loadPeople(true);

@@ -19,7 +19,7 @@
     <a class="skip" href="#stage">Skip to booklet</a>
 
     <header class="top">
-      <p class="wordmark" aria-hidden="true"><strong>Tubus</strong><span class="dim" data-count></span></p>
+      <p class="wordmark" aria-hidden="true"><strong>Tubus</strong></p>
 
       <div class="credits">
         <h1>
@@ -45,6 +45,8 @@
           </div>
         </div>
 
+        <button type="button" class="chip chip-solid add-btn" data-upload-open>Add<span class="add-long"> leporello</span></button>
+
         <div class="account">
           <button type="button" class="account-btn" aria-expanded="false" aria-controls="account-panel">Sign in</button>
           <div id="account-panel" class="settings-panel account-panel" hidden>
@@ -60,7 +62,11 @@
       <!-- One .book per library entry is appended here (see #book-tpl). -->
       <nav class="people" data-people aria-label="People" hidden></nav>
       <p class="library-empty dim" data-library-empty hidden></p>
-      <nav class="library" data-library aria-label="Tubus"></nav>
+      <div class="shelf" data-shelf>
+        <div class="grid" data-grid></div>
+      </div>
+      <div class="shelf-fade shelf-fade--top" aria-hidden="true"></div>
+      <div class="shelf-fade shelf-fade--bottom" aria-hidden="true"></div>
     </main>
 
     <footer class="bottom">
@@ -147,6 +153,55 @@
         </section>
 
         <button type="button" class="profile-back" data-profile-close>Back to Tubus</button>
+      </div>
+    </section>
+
+    <section class="upload-page" data-upload-page aria-labelledby="upload-title">
+      <p class="auth-brand">Tubus</p>
+      <div class="upload-card">
+        <h1 id="upload-title">Add a leporello</h1>
+        <p class="dim auth-lead">Upload a PDF (best) or page images. Pages are prepared in your browser, and nothing is published until you press Publish.</p>
+
+        <label class="dropzone" data-dropzone>
+          <input type="file" data-file-input accept=".pdf,application/pdf,image/png,image/jpeg,image/webp" multiple hidden />
+          <strong>Drop a PDF here</strong>
+          <span class="dim">or choose a PDF, or page images (PNG, JPG)</span>
+        </label>
+        <p class="upload-status dim" role="status" data-upload-status></p>
+
+        <div data-upload-preview hidden>
+          <div class="upload-options" data-upload-options hidden>
+            <label>Pages per sheet
+              <select data-opt-per>
+                <option value="1">1 (as they are)</option>
+                <option value="2">2 (A4 landscape, cut in half)</option>
+                <option value="3">3</option>
+              </select>
+            </label>
+            <label class="check"><input type="checkbox" data-opt-swap /> Swap left and right</label>
+          </div>
+          <p class="upload-summary" data-upload-summary></p>
+          <div class="upload-grid" data-upload-grid></div>
+          <p class="dim section-note">Click a page to leave it out.</p>
+
+          <form id="upload-form" novalidate>
+            <label>Title
+              <input name="title" maxlength="80" autocomplete="off" required />
+            </label>
+            <label>Project line
+              <input name="meta" maxlength="80" autocomplete="off" placeholder="A07 · Walk the line" />
+              <small class="dim">Shown under the title (optional).</small>
+            </label>
+            <label>Credit
+              <input name="credit" maxlength="120" autocomplete="off" placeholder="Leave empty to use your name" />
+              <small class="dim">For co-authored books, e.g. “Dmitrii Demidov, Derin Arayici”.</small>
+            </label>
+            <p class="auth-error" role="alert" data-upload-error></p>
+            <button type="submit" class="auth-submit" data-upload-submit>Publish</button>
+          </form>
+        </div>
+
+        <button type="button" class="profile-back" data-upload-close>Cancel</button>
       </div>
     </section>
 

@@ -57,6 +57,7 @@ export function createLeporello(root, pages, { reducedMotion, onOpen, onIndex })
   group.append(ambient);
 
   let p = 0;
+  let tiltK = 1; // 1 = the quiet three-quarter view of the closed stack, 0 = straight on
   let zig = 0; // resting fold angle at p = 1
   let w = 0, h = 0, vw = 0, vh = 0, pad = 0;
   let cancel = null;
@@ -92,8 +93,8 @@ export function createLeporello(root, pages, { reducedMotion, onOpen, onIndex })
     const psi = lerp(CLOSED, 0, e);
     // Camera: a quiet three-quarter view of the closed stack that settles to front-on.
     const settle = ease.inOut(clamp(p * 1.6, 0, 1));
-    const tiltY = lerp(-24, 0, settle) * DEG;
-    const tiltX = lerp(-12, 0, settle) * DEG;
+    const tiltY = lerp(-24, 0, settle) * DEG * tiltK;
+    const tiltX = lerp(-12, 0, settle) * DEG * tiltK;
 
     const thetas = pages.map((_, i) => (i % 2 === 0 ? -phi : phi));
     const { points, end } = chain(thetas, w, PAPER * Math.sin(phi));
@@ -206,6 +207,32 @@ export function createLeporello(root, pages, { reducedMotion, onOpen, onIndex })
     requestAnimationFrame(wait);
   }
 
+  /** Sets how far the closed stack is turned: 1 = three-quarter view, 0 = facing the viewer. */
+  function setTilt(k) {
+    tiltK = k;
+    render();
+  }
+
+  /** Eases the turn to `k` over `ms`; resolves when done. */
+  function tiltTo(k, ms) {
+    return new Promise((resolve) => {
+      const from = tiltK;
+      if (reducedMotion() || from === k) {
+        setTilt(k);
+        return resolve();
+      }
+      tween(ms, (t) => {
+        tiltK = lerp(from, k, ease.inOut(t));
+        render();
+      }, resolve);
+    });
+  }
+
+  /** Where the cover is on screen right now (face-on, this is a plain rectangle). */
+  function coverRect() {
+    return panels[0].el.getBoundingClientRect();
+  }
+
   function setZigzag(on, instant) {
     const from = zig;
     const to = on ? ZIGZAG : 0;
@@ -276,6 +303,9 @@ export function createLeporello(root, pages, { reducedMotion, onOpen, onIndex })
     unfold,
     fold,
     setZigzag,
+    setTilt,
+    tiltTo,
+    coverRect,
     scrollToIndex,
     onUnfoldRequest(fn) { unfoldRequest = fn; },
     get open() { return p >= 1; },

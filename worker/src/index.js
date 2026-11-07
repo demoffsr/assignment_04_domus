@@ -22,7 +22,8 @@ class HttpError extends Error {
   }
 }
 
-const MAX_UPLOAD = 25 * 1024 * 1024; // one page image or a PDF
+const MAX_IMAGE = 15 * 1024 * 1024; // one page image
+const MAX_PDF = 80 * 1024 * 1024;
 const TYPES = { webp: 'image/webp', png: 'image/png', avif: 'image/avif', pdf: 'application/pdf' };
 
 function cors(request, env) {
@@ -211,7 +212,7 @@ async function upload(request, env, bookId, name) {
   await ownBook(env, user, bookId);
   const ext = /^[a-z0-9][a-z0-9._-]{0,80}\.(webp|png|avif|pdf)$/.exec(name)?.[1];
   if (!ext) throw new HttpError(400, 'bad_file_name');
-  if (+(request.headers.get('content-length') || 0) > MAX_UPLOAD) throw new HttpError(413, 'too_large');
+  if (+(request.headers.get('content-length') || 0) > (ext === 'pdf' ? MAX_PDF : MAX_IMAGE)) throw new HttpError(413, 'too_large');
   if (!request.body) throw new HttpError(400, 'empty_body');
   await env.BUCKET.put(`u/${bookId}/${name}`, request.body, {
     httpMetadata: { contentType: TYPES[ext], cacheControl: ext === 'pdf' ? 'public, max-age=3600' : 'public, max-age=31536000, immutable' },
@@ -251,15 +252,15 @@ function cleanPages(pages, prefix) {
 async function publish(request, env, id) {
   const user = await requireUser(request, env);
   await ownBook(env, user, id);
-  const { title, meta, pdf, pages } = await body(request);
+  const { title, meta, credit, pdf, pages } = await body(request);
   const t = cleanName(title);
   if (t.length < 1 || t.length > 80) throw new HttpError(400, 'bad_title');
   const prefix = `u/${id}/`;
   const manifest = JSON.stringify({ pages: cleanPages(pages, prefix) });
   const pdfKey = pdf ? (pdf.startsWith(prefix) && !pdf.includes('..') ? pdf : (() => { throw new HttpError(400, 'bad_key'); })()) : null;
   await env.DB.prepare(
-    "UPDATE books SET title = ?, meta = ?, pdf_key = ?, manifest = ?, published_at = COALESCE(published_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE id = ?",
-  ).bind(t, cleanName(meta).slice(0, 80), pdfKey, manifest, id).run();
+    "UPDATE books SET title = ?, meta = ?, credit = ?, pdf_key = ?, manifest = ?, published_at = COALESCE(published_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE id = ?",
+  ).bind(t, cleanName(meta).slice(0, 80), cleanName(credit).slice(0, 120) || null, pdfKey, manifest, id).run();
   await audit(env, user.id, 'publish', id);
   return reply({ id });
 }
@@ -282,6 +283,12 @@ async function route(request, env) {
 
   if (get && pathname === '/api/health') return reply({ ok: true });
   if (get && pathname === '/api/library') return library(env);
+  // Local development only (SERVE_MEDIA is set in worker/.dev.vars): serve bucket files so uploads can be seen without R2's public URL.
+  if (get && env.SERVE_MEDIA && (r = m(/^\/api\/media\/(.+)$/))) {
+    const obj = await env.BUCKET.get(decodeURIComponent(r[1]));
+    if (!obj) throw new HttpError(404, 'not_found');
+    return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'application/octet-stream', 'access-control-allow-origin': '*' } });
+  }
   if (get && pathname === '/api/people') return people(request, env);
   if (post && pathname === '/api/register') return register(request, env);
   if (post && pathname === '/api/login') return login(request, env);

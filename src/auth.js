@@ -19,16 +19,17 @@ function save(next) {
 
 /** Calls the API. Errors carry `.code` (the API's error code, or 'network') and `.status`. */
 async function call(path, { method = 'GET', body, headers } = {}) {
+  const raw = body instanceof Blob; // files go as they are, everything else as JSON
   let res;
   try {
     res = await fetch(API + path, {
       method,
       headers: {
-        ...(body ? { 'content-type': 'application/json' } : {}),
+        ...(body && !raw ? { 'content-type': 'application/json' } : {}),
         ...(session ? { authorization: `Bearer ${session.token}` } : {}),
         ...headers,
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? (raw ? body : JSON.stringify(body)) : undefined,
     });
   } catch {
     throw Object.assign(new Error('network'), { code: 'network' });
