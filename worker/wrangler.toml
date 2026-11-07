@@ -13,7 +13,7 @@ binding = "BUCKET"
 bucket_name = "tubus"
 
 [vars]
-ALLOWED_ORIGINS = "https://assignment-04-domus.vercel.app,http://localhost:5173,http://localhost:5174,http://localhost:4173"
+ALLOWED_ORIGINS = "https://domus-tubus.vercel.app,https://assignment-04-domus.vercel.app,http://localhost:5173,http://localhost:5174,http://localhost:4173"
 # Secrets, set with `wrangler secret put <NAME>` (locally: worker/.dev.vars):
 #   INVITE_CODE       the shared invite code
 #   ADMIN_USERNAMES   comma separated usernames that may remove anyone's book
