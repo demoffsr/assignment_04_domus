@@ -1,7 +1,7 @@
 // Build-time image pipeline.
-// For every book in books.json, reads /pages/<id>/NN.png, writes resized
-// AVIF / WebP / PNG variants into public/generated/ and a manifest that the
-// app imports.
+// For every book in books.json, reads /pages/<id>/NN.png and writes resized
+// AVIF / WebP / PNG variants into .cache/images/img/ plus a manifest next to
+// them. scripts/publish.mjs runs this and then uploads the result to R2.
 // - Never upscales: widths larger than the source are dropped.
 // - The untouched original is copied for the zoom view.
 // - File names carry a content hash, so they can be cached forever.
@@ -13,13 +13,13 @@ import { join } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
 const pagesRoot = join(root, 'pages');
-const outDir = join(root, 'public', 'generated');
-const manifestPath = join(root, 'src', 'generated', 'manifest.json');
+const cacheDir = join(root, '.cache', 'images');
+const outDir = join(cacheDir, 'img');
+const manifestPath = join(cacheDir, 'manifest.json');
 const WIDTHS = [420, 840, 1680];
 const books = JSON.parse(readFileSync(join(root, 'books.json'), 'utf8'));
 
 mkdirSync(outDir, { recursive: true });
-mkdirSync(join(root, 'src', 'generated'), { recursive: true });
 
 const wanted = new Set();
 const manifest = { books: {} };
@@ -52,12 +52,12 @@ for (const book of books) {
     for (const w of widths) {
       for (const fmt of Object.keys(variants)) {
         if (fmt === 'png' && w === width) {
-          variants.png.push({ w, src: `/generated/${original}` }); // the original is the full-size PNG
+          variants.png.push({ w, src: `img/${original}` }); // the original is the full-size PNG
           continue;
         }
         const name = `${base}-${w}-${hash}.${fmt}`;
         wanted.add(name);
-        variants[fmt].push({ w, src: `/generated/${name}` });
+        variants[fmt].push({ w, src: `img/${name}` });
         const out = join(outDir, name);
         if (existsSync(out)) continue;
         let p = sharp(buf);
@@ -72,15 +72,13 @@ for (const book of books) {
 
     // Average colour of the page border = the paper colour. Used behind the image
     // (so anti-aliased edges never show a light fringe) and for the back of the sheet.
-    pages.push({ file, width, height, hash, variants, original: `/generated/${original}`, paper: await edgeColour(buf) });
+    pages.push({ file, width, height, hash, variants, original: `img/${original}`, paper: await edgeColour(buf) });
     process.stdout.write(`\r[images] ${book.id} ${pages.length}/${files.length}`);
   }
 
   let pdf = null;
   if (book.pdf && existsSync(join(srcDir, book.pdf))) {
-    copyFileSync(join(srcDir, book.pdf), join(outDir, book.pdf));
-    wanted.add(book.pdf);
-    pdf = `/generated/${book.pdf}`;
+    pdf = `pdf/${book.id}/${book.pdf}`; // uploaded as-is by publish.mjs
   } else if (book.pdf) {
     console.warn(`\n[images] ${book.id}: ${book.pdf} not found in /pages/${book.id} — Download button and PDF rendering disabled.`);
   }

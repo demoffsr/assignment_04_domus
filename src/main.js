@@ -3,6 +3,11 @@ import { books } from './images.js';
 import { createBook } from './book.js';
 import { sheetSize } from './leporello.js';
 
+if (!books.length) {
+  document.querySelector('[data-hint]').textContent = 'The library could not be loaded. Try again in a moment.';
+  throw new Error('[tubus] no books to show');
+}
+
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 

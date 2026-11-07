@@ -1,27 +1,29 @@
-import manifest from './generated/manifest.json';
-import library from '../books.json';
-
 export const ASPECT = 148 / 210; // A5 portrait, width / height
 
-// Editable titles live next to each book's pages: /pages/<id>/pages.json.
-const titles = import.meta.glob('../pages/*/pages.json', { eager: true, import: 'default' });
+// Where scripts/publish.mjs puts library.json and the images (a public R2 bucket).
+const BASE = (import.meta.env.VITE_LIBRARY_URL || 'https://pub-b854f392891e4020bbf5dcf7c6e9ffd4.r2.dev').replace(/\/$/, '');
+const url = (key) => `${BASE}/${key}`;
 
-/**
- * Books from books.json that the image build produced pages for. Each page
- * merges the build manifest with its entry in pages.json (matched by index).
- */
-export const books = library
-  .filter((b) => manifest.books[b.id])
-  .map((b) => {
-    const built = manifest.books[b.id];
-    const meta = titles[`../pages/${b.id}/pages.json`] || [];
-    const pages = built.pages.map((img, i) => {
-      const m = meta.find((t) => t.index === i + 1) || {};
-      const title = m.title || `Page ${i + 1}`;
-      return { ...img, index: i, title, section: m.section || '', alt: m.alt || title };
-    });
-    return { ...b, pdfUrl: built.pdf, pages };
-  });
+let library = { books: [] };
+try {
+  const res = await fetch(url('library.json'), { cache: 'no-cache' }); // revalidates with the ETag
+  if (!res.ok) throw new Error(`library.json: ${res.status}`);
+  library = await res.json();
+} catch (err) {
+  console.error('[tubus] could not load the library', err);
+}
+
+/** Books from library.json, with every storage key turned into a full URL. */
+export const books = library.books.map((b) => ({
+  ...b,
+  pdfUrl: b.pdf ? url(b.pdf) : null,
+  pages: b.pages.map((p, i) => ({
+    ...p,
+    index: i,
+    original: url(p.original),
+    variants: Object.fromEntries(Object.entries(p.variants).map(([fmt, list]) => [fmt, list.map((v) => ({ ...v, src: url(v.src) }))])),
+  })),
+}));
 
 const srcset = (list) => list.map((v) => `${v.src} ${v.w}w`).join(', ');
 

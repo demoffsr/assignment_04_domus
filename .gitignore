@@ -5,3 +5,9 @@ dist
 public/generated
 src/generated
 .vercel
+
+# secrets and local caches
+.env
+.env.*
+!.env.example
+.cache

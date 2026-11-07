@@ -10,12 +10,12 @@ Each book has three modes: **Folded** (a closed stack), **Unfolded** (the accord
 
 ```bash
 npm install
-npm run dev        # builds images (first run ≈1 min), then starts http://localhost:5173
+npm run dev        # http://localhost:5173
 npm run build      # production build → dist/
 npm run preview    # serve dist/ locally
 ```
 
-Requires Node 18+.
+Requires Node 20.6+. The site itself has no books in it: at startup it reads `library.json` and the page images from a public **Cloudflare R2** bucket (`tubus`). `VITE_LIBRARY_URL` overrides the bucket address (the default is set in `src/images.js`).
 
 ## Add a book to the library
 
@@ -31,13 +31,13 @@ Requires Node 18+.
    { "index": 5, "title": "Integrity", "section": "Vocabulary", "alt": "optional longer alt text" }
    ```
    `title` is used as the alt text, thumbnail label and zoom label (`alt` overrides the alt text). `section` labels the counter and groups the thumbnails.
-5. If `npm run dev` is already running, it notices changes in `/pages` and `books.json`, re-encodes only the changed files and reloads the browser. It takes about 4 s per new page. Otherwise run `npm run dev` or `npm run build`.
+5. Publish: `npm run library:publish`. It encodes the pages (cached by content hash, so only new or changed pages take time, about 5 s per page), uploads them to R2 and refreshes `library.json`. The site shows the change on the next reload, no deploy needed. One-time setup: copy `.env.example` to `.env` and put the R2 access key in it (never commit `.env`). `node scripts/publish.mjs --dry` encodes and builds `library.json` without uploading.
 
 > *Book Two* currently uses **generated placeholder pages**. Drop the real `01.png …` into `pages/book-two/` over them (or `npm run placeholders -- <id> "<Title>" <count>` makes new placeholders for another book), and edit its entry in `books.json`.
 
 ### What the image build does
 
-For each page of each book it writes to `public/generated/`:
+For each page of each book it writes to `.cache/images/img/` (and `publish` uploads them to the bucket under `img/`):
 
 - AVIF, WebP and PNG at **420, 840 and 1680 px** wide. Nothing is ever upscaled: widths above the source are skipped.
 - An untouched copy of the original for the zoom view.
@@ -51,13 +51,13 @@ The page uses `<picture>` with `srcset` + `sizes` set to the exact drawn width, 
 
 ## Deploy
 
-The output is fully static (`dist/`).
+The output is fully static (`dist/`), and since the books live in R2, a deploy takes seconds.
 
 - **Vercel**: import the repo. `vercel.json` sets the build command and output directory.
 - **Netlify**: import the repo. `netlify.toml` sets `npm run build` → `dist`.
 - Anything else: `npm run build` and upload `dist/`.
 
-`public/generated/` and `src/generated/` are not committed: every deploy rebuilds them from `/pages` (about 1–2 min per 30 pages).
+Adding or changing a book needs `npm run library:publish`, not a deploy. The bucket needs a CORS policy that allows `GET` (the site fetches `library.json` and PDFs from another origin).
 
 ## Customise
 
@@ -69,7 +69,8 @@ The output is fully static (`dist/`).
 ```
 books.json             the library: one entry per book (you edit this)
 pages/<id>/            a book's source PNGs + PDF + pages.json (titles / sections / alt)
-scripts/build-images.mjs
+scripts/build-images.mjs     encodes pages into .cache/images
+scripts/publish.mjs          encodes, uploads to R2, writes library.json
 src/
   main.js              library, routing, header / settings
   book.js              one book: leporello, page-by-page view + thumbnails, zoom, keyboard
