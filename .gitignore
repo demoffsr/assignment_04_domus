@@ -11,3 +11,7 @@ src/generated
 .env.*
 !.env.example
 .cache
+
+# wrangler local state and dev secrets
+.wrangler
+.dev.vars

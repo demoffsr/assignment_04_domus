@@ -1,19 +1,28 @@
+import { API_URL } from './auth.js';
+
 export const ASPECT = 148 / 210; // A5 portrait, width / height
 
 // Where scripts/publish.mjs puts library.json and the images (a public R2 bucket).
 const BASE = (import.meta.env.VITE_LIBRARY_URL || 'https://pub-b854f392891e4020bbf5dcf7c6e9ffd4.r2.dev').replace(/\/$/, '');
 const url = (key) => `${BASE}/${key}`;
 
-let library = { books: [] };
-try {
-  const res = await fetch(url('library.json'), { cache: 'no-cache' }); // revalidates with the ETag
-  if (!res.ok) throw new Error(`library.json: ${res.status}`);
-  library = await res.json();
-} catch (err) {
-  console.error('[tubus] could not load the library', err);
+// The API is the source of truth; library.json in R2 is only a safety net.
+let library = null;
+for (const source of [`${API_URL}/library`, url('library.json')]) {
+  try {
+    const res = await fetch(source, { cache: 'no-cache' }); // revalidates with the ETag
+    if (!res.ok) throw new Error(`${source}: ${res.status}`);
+    library = await res.json();
+    break;
+  } catch (err) {
+    console.warn('[tubus] could not load the library from', source, err);
+  }
 }
+/** True when no source answered (an empty library is not an error). */
+export const libraryError = !library;
+library ||= { books: [] };
 
-/** Books from library.json, with every storage key turned into a full URL. */
+/** The books, with every storage key turned into a full URL. */
 export const books = library.books.map((b) => ({
   ...b,
   pdfUrl: b.pdf ? url(b.pdf) : null,

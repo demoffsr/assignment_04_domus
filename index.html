@@ -6,6 +6,10 @@
     <title>Tubus — Dmitrii Demidov</title>
     <meta name="description" content="Tubus — a library of leporello booklets. Fold, unfold and page through each one." />
     <meta name="theme-color" content="#000000" />
+    <script>
+      // Show the sign-in page from the first paint when there is no saved session.
+      if (!localStorage.getItem('tubus.session')) document.documentElement.classList.add('signed-out');
+    </script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23000%22/%3E%3Cpath d=%22M7 9l6 2v14l-6-2zM13 11l6-2v14l-6 2zM19 9l6 2v14l-6-2z%22 fill=%22%232f5bff%22/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -32,17 +36,30 @@
         <button type="button" data-mode="pages" aria-pressed="false">Page by page</button>
       </nav>
 
-      <div class="settings">
-        <button type="button" class="settings-btn" aria-expanded="false" aria-controls="settings-panel">Settings</button>
-        <div id="settings-panel" class="settings-panel" hidden>
-          <label><input type="checkbox" id="opt-zigzag" /> Keep slight zigzag</label>
-          <label><input type="checkbox" id="opt-vector" /> Vector pages (PDF)</label>
+      <div class="top-right">
+        <div class="settings">
+          <button type="button" class="settings-btn" aria-expanded="false" aria-controls="settings-panel">Settings</button>
+          <div id="settings-panel" class="settings-panel" hidden>
+            <label><input type="checkbox" id="opt-zigzag" /> Keep slight zigzag</label>
+            <label><input type="checkbox" id="opt-vector" /> Vector pages (PDF)</label>
+          </div>
+        </div>
+
+        <div class="account">
+          <button type="button" class="account-btn" aria-expanded="false" aria-controls="account-panel">Sign in</button>
+          <div id="account-panel" class="settings-panel account-panel" hidden>
+            <p class="menu-label">Account</p>
+            <button type="button" class="menu-item" data-profile-open>Edit profile</button>
+            <button type="button" class="menu-item" data-signout>Sign out</button>
+          </div>
         </div>
       </div>
     </header>
 
     <main id="stage" class="stage" tabindex="-1">
-      <!-- One .book per entry in books.json is appended here (see #book-tpl). -->
+      <!-- One .book per library entry is appended here (see #book-tpl). -->
+      <nav class="people" data-people aria-label="People" hidden></nav>
+      <p class="library-empty dim" data-library-empty hidden></p>
       <nav class="library" data-library aria-label="Tubus"></nav>
     </main>
 
@@ -50,6 +67,88 @@
       <a class="pill download" data-download download>Download PDF</a>
       <p class="hint dim" data-hint></p>
     </footer>
+
+    <section class="auth-page" data-auth-page aria-labelledby="auth-title">
+      <p class="auth-brand">Tubus</p>
+      <div class="auth-card">
+        <h1 id="auth-title" data-auth-title>Sign in to Tubus</h1>
+        <p class="dim auth-lead">A library of leporello booklets.</p>
+
+        <div class="auth-tabs" role="group" aria-label="Account">
+          <button type="button" data-auth-tab="signin" aria-pressed="true">Sign in</button>
+          <button type="button" data-auth-tab="register" aria-pressed="false">Create account</button>
+        </div>
+
+        <form id="auth-form" novalidate>
+          <label>Invite code
+            <input name="invite" autocomplete="off" autocapitalize="none" spellcheck="false" required />
+            <small class="dim">Ask your group for it.</small>
+          </label>
+          <label>Username
+            <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+            <small class="dim" data-username-hint></small>
+          </label>
+          <label data-register-only>Your name
+            <input name="displayName" autocomplete="name" maxlength="40" />
+            <small class="dim">Shown next to your books.</small>
+          </label>
+
+          <p class="auth-error" role="alert" data-auth-error></p>
+          <button type="submit" class="auth-submit" data-auth-submit>Sign in</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="profile-page" data-profile-page aria-labelledby="profile-title">
+      <p class="auth-brand">Tubus</p>
+      <div class="auth-card">
+        <h1 id="profile-title">Your profile</h1>
+        <p class="dim auth-lead">Manage how your name is shown and how you sign in.</p>
+
+        <form id="name-form" class="profile-section" novalidate>
+          <label>Your name
+            <input name="displayName" autocomplete="name" maxlength="40" required />
+            <small class="dim">Shown next to your books.</small>
+          </label>
+          <div class="section-actions">
+            <button type="submit" class="chip chip-solid" data-name-submit>Save name</button>
+            <p class="section-message" role="status" data-name-message></p>
+          </div>
+        </form>
+
+        <section class="profile-section" aria-labelledby="username-title">
+          <h2 id="username-title" class="section-title">Username</h2>
+          <div class="secret-row">
+            <span class="mask" data-username-value role="img" aria-label="Hidden">••••••••</span>
+            <span class="row-actions">
+              <button type="button" class="icon-btn" data-username-eye aria-pressed="false" aria-label="Show username" title="Show username">
+                <svg class="eye-on" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 12S5.3 5 12 5s10.5 7 10.5 7-3.8 7-10.5 7S1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-off" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 12S5.3 5 12 5s10.5 7 10.5 7-3.8 7-10.5 7S1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg>
+              </button>
+              <button type="button" class="chip" data-username-edit>Edit</button>
+            </span>
+          </div>
+          <p class="dim section-note">Private, never shown. You use it, with the invite code, to sign in on other devices.</p>
+
+          <form id="username-form" novalidate hidden>
+            <label>New username
+              <input name="username" autocomplete="off" autocapitalize="none" spellcheck="false" required />
+            </label>
+            <label>Repeat new username
+              <input name="confirm" autocomplete="off" autocapitalize="none" spellcheck="false" required />
+              <small class="dim">3–24 characters: a–z, 0–9, dot, dash, underscore.</small>
+            </label>
+            <div class="section-actions">
+              <button type="submit" class="chip chip-solid" data-username-submit>Save username</button>
+              <button type="button" class="chip chip-link" data-username-cancel>Cancel</button>
+            </div>
+          </form>
+          <p class="section-message" role="status" data-username-message></p>
+        </section>
+
+        <button type="button" class="profile-back" data-profile-close>Back to Tubus</button>
+      </div>
+    </section>
 
     <template id="book-tpl">
       <div class="book">
