@@ -18,6 +18,8 @@ const isImage = (f) => /^image\/(png|jpeg|webp)$/.test(f.type) || /\.(png|jpe?g|
 const pad = (n) => String(n).padStart(2, '0');
 const canvasOf = (w, h) => Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)) });
 const toBlob = (canvas, type, quality) => new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+/** Drops a canvas's pixel memory now; Safari otherwise holds on to it and slows down under memory pressure. */
+const release = (canvas) => { if (canvas) canvas.width = canvas.height = 0; };
 
 /** How many A5 pages sit side by side on a sheet of this shape (A4 landscape = 2). */
 function pagesPerSheet(w, h) {
@@ -45,10 +47,15 @@ function edgeColour(source, sx = 0, sy = 0, sw = source.width, sh = source.heigh
 }
 
 let webpOk;
-/** WebP where the browser can encode it (Safari cannot), lossless PNG otherwise. */
+/**
+ * WebP where the browser can encode it. Safari cannot, so it gets JPEG: pages are opaque, and a
+ * lossless PNG of a full page is several times heavier to send. PNG is the last resort.
+ */
 async function encode(canvas) {
   if (webpOk === undefined) webpOk = (await toBlob(canvasOf(2, 2), 'image/webp', 0.9))?.type === 'image/webp';
   if (webpOk) return { blob: await toBlob(canvas, 'image/webp', 0.9), ext: 'webp' };
+  const jpg = await toBlob(canvas, 'image/jpeg', 0.92);
+  if (jpg?.type === 'image/jpeg') return { blob: jpg, ext: 'jpg' };
   return { blob: await toBlob(canvas, 'image/png'), ext: 'png' };
 }
 
@@ -64,7 +71,7 @@ const MESSAGES = {
   network: 'Cannot reach the server. Check your connection and press Publish again.',
 };
 
-export function createUploader(page, { onPublished, onClose }) {
+export function createUploader(page, { onPublished, onDone, onClose }) {
   const $ = (s) => page.querySelector(s);
   const dropzone = $('[data-dropzone]');
   const input = $('[data-file-input]');
@@ -80,11 +87,41 @@ export function createUploader(page, { onPublished, onClose }) {
   const submit = $('[data-upload-submit]');
   const closeBtn = $('[data-upload-close]');
 
+  // The four screens of the page: the form, publishing, done, failed.
+  const views = {
+    edit: $('[data-upload-edit]'),
+    progress: $('[data-upload-progress]'),
+    done: $('[data-upload-done]'),
+    failed: $('[data-upload-failed]'),
+  };
+  const pg = {
+    step: $('[data-progress-step]'),
+    title: $('[data-progress-title]'),
+    bar: $('[data-progress-bar]'),
+    fill: $('[data-progress-fill]'),
+    count: $('[data-progress-count]'),
+    percent: $('[data-progress-percent]'),
+    eta: $('[data-progress-eta]'),
+    thumb: $('[data-progress-thumb]'),
+    now: $('[data-progress-now]'),
+    sent: $('[data-progress-sent]'),
+    steps: [...page.querySelectorAll('[data-step]')],
+    cancelRow: $('[data-cancel-row]'),
+    confirmRow: $('[data-cancel-confirm-row]'),
+  };
+  function showView(name) {
+    for (const [k, el] of Object.entries(views)) el.hidden = k !== name;
+    page.dataset.view = name;
+    if (name === 'edit') views.edit.scrollIntoView?.({ block: 'start' });
+  }
+
   let source = null; // { kind: 'pdf', doc, file } | { kind: 'images', files }
   let sheets = []; // [{ w, h, thumb }]
   let panels = []; // [{ sheet, part, n, excluded }]
   let draftId = null;
   let busy = false;
+  let abort = null; // AbortController of the upload in progress
+  let cancelled = false;
 
   const say = (text) => (status.textContent = text);
   const fail = (text) => (errorEl.textContent = text);
@@ -102,6 +139,9 @@ export function createUploader(page, { onPublished, onClose }) {
     say('');
     fail('');
     input.value = '';
+    cancelled = false;
+    abort = null;
+    showView('edit');
     setBusy(false);
   }
 
@@ -252,6 +292,7 @@ export function createUploader(page, { onPublished, onClose }) {
       canvas.getContext('2d', { alpha: false }).drawImage(bmp, 0, 0);
       bmp.close?.();
     }
+    release(cachedSheet.canvas); // the previous sheet is no longer needed
     cachedSheet = { index: si, canvas };
     return canvas;
   }
@@ -259,6 +300,7 @@ export function createUploader(page, { onPublished, onClose }) {
   /** Encodes a page at every width; returns [{ w, name, blob, ext }] and the paper colour. */
   async function prepare(canvas, number) {
     const out = [];
+    const paper = edgeColour(canvas);
     for (const w of WIDTHS) {
       const c = w === PANEL_W ? canvas : canvasOf(w, Math.round(w / ASPECT));
       if (c !== canvas) {
@@ -267,21 +309,88 @@ export function createUploader(page, { onPublished, onClose }) {
         ctx.drawImage(canvas, 0, 0, c.width, c.height);
       }
       const { blob, ext } = await encode(c);
+      release(c); // the page canvas itself is released by the caller, the smaller ones right here
       out.push({ w, ext, blob, name: `p${pad(number)}-${w}-${await hash8(blob)}.${ext}` });
     }
-    return { files: out, paper: edgeColour(canvas) };
+    return { files: out, paper };
   }
 
-  async function put(id, name, blob, tries = 3) {
+  async function put(id, name, blob, signal, tries = 3) {
     for (let i = 1; ; i++) {
       try {
-        return await auth.call(`/upload/${id}/${encodeURIComponent(name)}`, { method: 'PUT', body: blob });
+        return await auth.call(`/upload/${id}/${encodeURIComponent(name)}`, { method: 'PUT', body: blob, signal });
       } catch (err) {
-        if (i >= tries || err.status === 413 || err.status === 401) throw err;
+        if (err.name === 'AbortError' || i >= tries || err.status === 413 || err.status === 401) throw err;
         await new Promise((r) => setTimeout(r, 600 * i));
       }
     }
   }
+
+  // --- The publishing screen ----------------------------------------------------------
+  const size = (bytes) =>
+    bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${bytes / 1048576 >= 10 ? Math.round(bytes / 1048576) : (bytes / 1048576).toFixed(1)} MB`;
+  function etaText(ms) {
+    const s = Math.max(1, Math.round(ms / 1000));
+    if (s < 8) return 'a few seconds left';
+    if (s < 55) return `about ${Math.round(s / 5) * 5} s left`;
+    return `about ${Math.max(1, Math.round(s / 60))} min left`;
+  }
+
+  /** Total work = pages + the PDF (if kept) + the final step; progress is how much of it is finished. */
+  function createProgress(title, pages, withPdf) {
+    const total = pages + (withPdf ? 1 : 0) + 1;
+    const t0 = performance.now();
+    let done = 0;
+    let sent = 0;
+    let speed = null; // MB/s of the page uploaded last
+    pg.title.textContent = `Publishing “${title}”`;
+    pg.cancelRow.hidden = false;
+    pg.confirmRow.hidden = true;
+    pg.steps.find((el) => el.dataset.step === 'pdf').hidden = !withPdf;
+
+    const set = (step, label) => {
+      pg.step.textContent = label;
+      pg.steps.forEach((el) => {
+        const order = ['pages', 'pdf', 'publish'];
+        const mine = order.indexOf(el.dataset.step);
+        const now = order.indexOf(step);
+        el.dataset.state = mine < now ? 'done' : mine === now ? 'active' : 'todo';
+      });
+    };
+    const render = () => {
+      const p = Math.min(1, done / total);
+      pg.fill.style.transform = `scaleX(${p})`;
+      pg.percent.textContent = `${Math.round(p * 100)}%`;
+      pg.bar.setAttribute('aria-valuenow', Math.round(p * 100));
+      pg.sent.textContent = sent ? `${size(sent)} sent${speed ? ` · ${speed.toFixed(1)} MB/s` : ''}` : 'Nothing sent yet';
+      const elapsed = performance.now() - t0;
+      pg.eta.textContent = done >= 1 && done < total ? etaText((elapsed / done) * (total - done)) : done >= total ? 'Almost done' : 'Estimating…';
+    };
+    render();
+    return {
+      step: set,
+      page(i, canvas) {
+        pg.count.textContent = `Page ${i} of ${pages}`;
+        pg.now.textContent = `Page ${i}`;
+        if (canvas) pg.thumb.replaceChildren(canvas);
+      },
+      advance(bytes = 0, ms = 0) { done++; sent += bytes; if (ms > 50 && bytes > 20000) speed = bytes / 1048576 / (ms / 1000); render(); },
+      text(count, now) { if (count) pg.count.textContent = count; if (now) pg.now.textContent = now; },
+      get bytes() { return sent; },
+    };
+  }
+
+  const cloneThumb = (panel) => {
+    const src = panel.el?.querySelector('canvas');
+    if (!src) return null;
+    const c = canvasOf(src.width, src.height);
+    c.getContext('2d').drawImage(src, 0, 0);
+    return c;
+  };
+
+  const stop = () => {
+    if (cancelled) throw Object.assign(new Error('cancelled'), { name: 'AbortError' });
+  };
 
   async function publish() {
     fail('');
@@ -291,31 +400,62 @@ export function createUploader(page, { onPublished, onClose }) {
     if (!chosen.length) return fail('Keep at least one page.');
     if (chosen.length > MAX_PAGES) return fail(`Up to ${MAX_PAGES} pages are allowed.`);
 
+    const withPdf = source.kind === 'pdf' && source.file.size <= MAX_PDF;
+    cancelled = false;
+    abort = new AbortController();
+    const { signal } = abort;
+    const progress = createProgress(title, chosen.length, withPdf);
+    showView('progress');
     setBusy(true);
+
     try {
-      draftId ||= (await auth.call('/books', { method: 'POST' })).id;
+      draftId ||= (await auth.call('/books', { method: 'POST', signal })).id;
       const id = draftId;
       const pages = [];
+      const timings = []; // how long each page took to prepare and to send, for the console
       let pending = Promise.resolve();
+      progress.step('pages', 'Preparing and uploading pages');
+
+      // The PDF travels while the pages are still being prepared, instead of as a lone wait at the end.
+      let pdfUpload = null;
+      if (withPdf) {
+        pdfUpload = put(id, 'book.pdf', source.file, signal).then(() => progress.advance(source.file.size));
+        pdfUpload.catch(() => {}); // surfaced where it is awaited below
+      }
 
       for (let i = 0; i < chosen.length; i++) {
+        stop();
         const p = chosen[i];
-        say(`Preparing and uploading pages… ${i + 1}/${chosen.length}`);
+        progress.page(i + 1, cloneThumb(p));
         const canvas = await sheetCanvas(p.sheet, p.n);
+        stop();
         const sw = canvas.width / p.n;
-        const { files, paper } = await prepare(compose(canvas, p.part * sw, sw, canvas.height), i + 1);
+        const tPrep = performance.now();
+        const composed = compose(canvas, p.part * sw, sw, canvas.height);
+        const { files, paper } = await prepare(composed, i + 1);
+        release(composed);
+        const prepMs = Math.round(performance.now() - tPrep);
         await pending; // the previous page finishes uploading while this one was being prepared
-        pending = Promise.all(files.map((f) => put(id, f.name, f.blob)));
+        stop();
+        const bytes = files.reduce((n, f) => n + f.blob.size, 0);
+        const tUp = performance.now();
+        const uploading = Promise.all(files.map((f) => put(id, f.name, f.blob, signal))).then(() => {
+          const upMs = Math.round(performance.now() - tUp);
+          timings.push({ page: i + 1, prepMs, upMs, KB: Math.round(bytes / 1024), 'MB/s': +(bytes / 1048576 / (upMs / 1000)).toFixed(2) });
+          progress.advance(bytes, upMs);
+        });
+        uploading.catch(() => {}); // a cancel rejects it; the loop sees the cancel on its own
+        pending = uploading;
 
         const list = files.map((f) => ({ w: f.w, src: `u/${id}/${f.name}` }));
-        const widest = list[list.length - 1].src;
         const same = files[0].ext === 'webp';
         pages.push({
           width: PANEL_W,
           height: PANEL_H,
-          // WebP where the browser could make it, PNG otherwise; the <img> fallback needs a list either way.
+          // WebP where the browser could make it. Otherwise the files are JPEG (or PNG); they sit in the
+          // list the plain <img> uses, which takes any format.
           variants: { avif: [], webp: same ? list : [], png: list },
-          original: widest,
+          original: list[list.length - 1].src,
           paper,
           title: i === 0 ? 'Cover' : `Page ${i + 1}`,
           section: '',
@@ -323,32 +463,68 @@ export function createUploader(page, { onPublished, onClose }) {
         });
       }
       await pending;
+      stop();
 
       let pdfKey = null;
-      if (source.kind === 'pdf') {
-        if (source.file.size <= MAX_PDF) {
-          say('Saving the PDF…');
-          await put(id, 'book.pdf', source.file);
-          pdfKey = `u/${id}/book.pdf`;
-        }
+      if (withPdf) {
+        progress.step('pdf', 'Saving the PDF');
+        progress.text('Saving the PDF', 'The original PDF');
+        pg.thumb.replaceChildren();
+        await pdfUpload;
+        pdfKey = `u/${id}/book.pdf`;
       }
+      stop();
 
-      say('Publishing…');
+      progress.step('publish', 'Publishing');
+      progress.text('Publishing…', 'Adding it to the library');
+      pg.cancelRow.hidden = true; // from here on the book may already be live, so there is nothing safe to cancel
       await auth.call(`/books/${id}/publish`, {
         method: 'POST',
         body: { title, meta: form.elements.meta.value, credit: form.elements.credit.value, pdf: pdfKey, pages },
       });
+      progress.advance();
+      console.info('[tubus] upload timings per page'); console.table(timings);
+
+      const summaryText = `“${title}” is in the library: ${pages.length} page${pages.length === 1 ? '' : 's'}, ${size(progress.bytes)}.`;
       cachedSheet = { index: -1, canvas: null };
       setBusy(false);
-      reset();
+      $('[data-done-title]').textContent = 'Published';
+      $('[data-done-text]').textContent = summaryText;
+      showView('done');
       await onPublished(id);
     } catch (err) {
+      if (err.name === 'AbortError') return; // cancelled: cancelUpload() tidies up
       console.error(err);
-      say('');
-      fail(MESSAGES[err.code] || 'Something went wrong while publishing. Press Publish to try again.');
+      $('[data-failed-text]').textContent = MESSAGES[err.code] || 'Something went wrong while publishing. Your pages are kept, so trying again is quick.';
       setBusy(false);
+      showView('failed');
     }
   }
+
+  /** Stops the upload, drops the unfinished draft and leaves the page. */
+  async function cancelUpload() {
+    cancelled = true;
+    abort?.abort();
+    const id = draftId;
+    draftId = null;
+    reset();
+    onClose();
+    if (id) auth.call(`/books/${id}`, { method: 'DELETE' }).catch(() => {}); // best effort; an unpublished draft is never shown anyway
+  }
+
+  $('[data-progress-cancel]').addEventListener('click', () => {
+    pg.cancelRow.hidden = true;
+    pg.confirmRow.hidden = false;
+  });
+  $('[data-cancel-keep]').addEventListener('click', () => {
+    pg.confirmRow.hidden = true;
+    pg.cancelRow.hidden = false;
+  });
+  $('[data-cancel-confirm]').addEventListener('click', cancelUpload);
+  $('[data-failed-retry]').addEventListener('click', () => !busy && publish());
+  $('[data-failed-cancel]').addEventListener('click', cancelUpload);
+  $('[data-done-view]').addEventListener('click', () => onDone());
+  $('[data-done-another]').addEventListener('click', reset);
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();

@@ -24,7 +24,7 @@ class HttpError extends Error {
 
 const MAX_IMAGE = 15 * 1024 * 1024; // one page image
 const MAX_PDF = 80 * 1024 * 1024;
-const TYPES = { webp: 'image/webp', png: 'image/png', avif: 'image/avif', pdf: 'application/pdf' };
+const TYPES = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', avif: 'image/avif', pdf: 'application/pdf' };
 
 function cors(request, env) {
   const origin = request.headers.get('Origin');
@@ -211,7 +211,7 @@ async function createDraft(request, env) {
 async function upload(request, env, bookId, name) {
   const user = await requireUser(request, env);
   await ownBook(env, user, bookId);
-  const ext = /^[a-z0-9][a-z0-9._-]{0,80}\.(webp|png|avif|pdf)$/.exec(name)?.[1];
+  const ext = /^[a-z0-9][a-z0-9._-]{0,80}\.(webp|png|jpg|avif|pdf)$/.exec(name)?.[1];
   if (!ext) throw new HttpError(400, 'bad_file_name');
   if (+(request.headers.get('content-length') || 0) > (ext === 'pdf' ? MAX_PDF : MAX_IMAGE)) throw new HttpError(413, 'too_large');
   if (!request.body) throw new HttpError(400, 'empty_body');

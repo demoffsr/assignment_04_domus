@@ -18,7 +18,7 @@ function save(next) {
 }
 
 /** Calls the API. Errors carry `.code` (the API's error code, or 'network') and `.status`. */
-async function call(path, { method = 'GET', body, headers } = {}) {
+async function call(path, { method = 'GET', body, headers, signal } = {}) {
   const raw = body instanceof Blob; // files go as they are, everything else as JSON
   let res;
   try {
@@ -30,8 +30,10 @@ async function call(path, { method = 'GET', body, headers } = {}) {
         ...headers,
       },
       body: body ? (raw ? body : JSON.stringify(body)) : undefined,
+      signal,
     });
-  } catch {
+  } catch (err) {
+    if (err?.name === 'AbortError') throw err; // the person cancelled
     throw Object.assign(new Error('network'), { code: 'network' });
   }
   const data = await res.json().catch(() => ({}));

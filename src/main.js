@@ -914,12 +914,13 @@ function openProfile() {
 const uploadPage = $('[data-upload-page]');
 const uploader = createUploader(uploadPage, {
   onClose: () => closeUpload(),
-  onPublished: async (id) => {
-    closeUpload();
+  // The page stays on its "Published" screen; the library is brought up to date behind it.
+  onPublished: async () => {
     await syncLibrary();
-    const added = entries.find((e) => e.id === id);
-    if (added) toast(`Leporello “${added.data.title}” published`);
     await loadPeople(true);
+  },
+  onDone: () => {
+    closeUpload();
     if (auth.user) navigate(`u/${auth.user.slug}`); // show the new book on its author's shelf
   },
 });
