@@ -172,6 +172,7 @@ async function library(env) {
     id: b.id,
     title: b.title,
     meta: b.meta,
+    credit: b.credit || null,
     author: b.credit || b.display_name,
     authorSlug: b.slug,
     pdf: b.pdf_key,
@@ -265,6 +266,22 @@ async function publish(request, env, id) {
   return reply({ id });
 }
 
+/** Renames a book and edits its project line and credit. Its author (or an admin) only. */
+async function updateBook(request, env, id) {
+  const user = await requireUser(request, env);
+  await ownBook(env, user, id, { allowAdmin: true });
+  const { title, meta, credit } = await body(request);
+  const t = cleanName(title);
+  if (t.length < 1 || t.length > 80) throw new HttpError(400, 'bad_title');
+  await env.DB.prepare('UPDATE books SET title = ?, meta = ?, credit = ? WHERE id = ?')
+    .bind(t, cleanName(meta).slice(0, 80), cleanName(credit).slice(0, 120) || null, id).run();
+  await audit(env, user.id, 'rename', id);
+  const row = await env.DB.prepare(
+    'SELECT b.id, b.title, b.meta, b.credit, u.display_name, u.slug FROM books b JOIN users u ON u.id = b.owner_id WHERE b.id = ?',
+  ).bind(id).first();
+  return reply({ book: { id: row.id, title: row.title, meta: row.meta, credit: row.credit, author: row.credit || row.display_name, authorSlug: row.slug } });
+}
+
 async function remove(request, env, id) {
   const user = await requireUser(request, env);
   await ownBook(env, user, id, { allowAdmin: true });
@@ -298,6 +315,7 @@ async function route(request, env) {
   if (post && pathname === '/api/books') return createDraft(request, env);
   if (request.method === 'PUT' && (r = m(/^\/api\/upload\/([a-f0-9]{16})\/([^/]+)$/))) return upload(request, env, r[1], decodeURIComponent(r[2]));
   if (post && (r = m(/^\/api\/books\/([a-f0-9]{16})\/publish$/))) return publish(request, env, r[1]);
+  if (request.method === 'PATCH' && (r = m(/^\/api\/books\/([a-f0-9]{16})$/))) return updateBook(request, env, r[1]);
   if (request.method === 'DELETE' && (r = m(/^\/api\/books\/([a-f0-9]{16})$/))) return remove(request, env, r[1]);
   throw new HttpError(404, 'not_found');
 }

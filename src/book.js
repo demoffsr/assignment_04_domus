@@ -35,9 +35,10 @@ export function createBook(data, ctx) {
 
   // --- Zoom (built on first use) ---------------------------------------------
   let zoom = null;
+  let zoomEl = null;
   function getZoom() {
     if (zoom) return zoom;
-    const zoomEl = ctx.zoomTpl.content.firstElementChild.cloneNode(true);
+    zoomEl = ctx.zoomTpl.content.firstElementChild.cloneNode(true);
     document.body.append(zoomEl);
     zoom = createZoom(zoomEl, pages, {
       vector: vectorOn,
@@ -247,10 +248,18 @@ export function createBook(data, ctx) {
     }
   }
 
+  /** The book was deleted: take its views off the page. */
+  function destroy() {
+    clearTimeout(vecTimer);
+    el.remove();
+    zoomEl?.remove();
+  }
+
   return {
     id,
     data,
     el,
+    destroy,
     lep,
     setMode,
     close,

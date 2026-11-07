@@ -75,6 +75,8 @@ button:disabled { opacity: 0.25; cursor: default; }
   pointer-events: none;
 }
 .wordmark strong { font-size: clamp(30px, 3.4vw, 44px); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+.credits { grid-column: 1; grid-row: 1; }
+.modes { grid-column: 2; grid-row: 1; }
 .credits h1 { margin: 0; display: flex; align-items: baseline; gap: 6px; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
 .crumb { color: var(--dim); font-weight: 400; transition: color 0.2s; }
 .crumb:hover { color: var(--fg); }
@@ -91,7 +93,7 @@ button:disabled { opacity: 0.25; cursor: default; }
 .modes button:hover { color: var(--fg); }
 .modes button[aria-pressed='true'] { color: var(--fg); background: rgba(255, 255, 255, 0.08); }
 
-.top-right { justify-self: end; display: flex; align-items: center; gap: 18px; }
+.top-right { grid-column: 3; grid-row: 1; justify-self: end; display: flex; align-items: center; gap: 18px; }
 .settings, .account { position: relative; }
 .settings-btn, .account-btn { color: var(--dim); padding: 6px 2px; transition: color 0.2s; }
 .settings-btn:hover, .settings-btn[aria-expanded='true'], .account-btn:hover, .account-btn[aria-expanded='true'] { color: var(--fg); }
@@ -303,7 +305,7 @@ body.booting .book, body.booting .shelf, body.booting .shelf-fade, body.booting 
 
 /* ── Library ─────────────────────────────────────────────── */
 /* Book chrome appears once the book has come forward. */
-.modes, .settings, .credits { transition: opacity 0.4s var(--ease) 0.45s; }
+.modes, .settings, .credits { transition: opacity 0.3s var(--ease) 0.25s; }
 body[data-view='library'] .modes, body[data-view='library'] .settings, body[data-view='library'] .credits {
   opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity 0.25s var(--ease), visibility 0s linear 0.25s;
@@ -315,10 +317,10 @@ body[data-view='library'] .wordmark { opacity: 1; visibility: visible; transitio
 /* Flat covers, up to four to a row, centred. */
 .shelf {
   position: absolute; inset: 0;
-  padding: 120px clamp(16px, 3vw, 32px) 104px; /* room under the people bar, and for the last label */
+  padding: 64px clamp(16px, 3vw, 32px) 104px; /* below the header, past the top fade, and room for the last label */
   /* The covers dissolve towards the top and bottom edge instead of being cut. */
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 84px, #000 calc(100% - 72px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 84px, #000 calc(100% - 72px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 60px, #000 calc(100% - 72px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 60px, #000 calc(100% - 72px), transparent 100%);
   overflow-x: hidden; overflow-y: auto;
   scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   transition: opacity 0.35s var(--ease) 0.3s;
@@ -332,14 +334,14 @@ body[data-view='book'] .shelf, body[data-view='book'] .shelf-fade { opacity: 0; 
   mask-image: linear-gradient(to bottom, transparent, #000 45%, transparent);
   transition: opacity 0.35s var(--ease) 0.3s;
 }
-.shelf-fade--top { top: 0; height: 112px; }
+.shelf-fade--top { top: 0; height: 80px; }
 .shelf-fade--bottom { bottom: 0; height: 96px; transform: scaleY(-1); }
 /* Covers start at the left edge (in line with the logo) and flow into as many columns as fit. */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 60px 48px; justify-content: start; }
 .card {
   min-width: 0;
   display: flex; flex-direction: column; justify-content: flex-start; align-self: start;
-  text-align: left; cursor: pointer; scroll-margin: 112px 0 96px;
+  text-align: left; cursor: pointer; scroll-margin: 80px 0 96px;
 }
 .card.lifted { visibility: hidden; } /* the flying cover stands in for it */
 @media (max-width: 700px) { .grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 40px 20px; } }
@@ -354,24 +356,31 @@ body[data-view='book'] .shelf, body[data-view='book'] .shelf-fade { opacity: 0; 
 .cover picture, .cover img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .cover img { object-fit: cover; opacity: 0; transition: opacity 0.35s ease; user-select: none; -webkit-user-drag: none; }
 .cover img.loaded { opacity: 1; }
-.card:hover .cover, .card:focus-visible .cover { transform: translateY(-6px); }
-.card-label { display: grid; gap: 2px; margin-top: 14px; color: var(--dim); }
+.card-open { display: block; width: 100%; }
+.card:hover .cover, .card:focus-within .cover { transform: translateY(-6px); }
+.card-foot { display: flex; align-items: flex-start; gap: 6px; margin-top: 14px; }
+.card-label { display: grid; flex: 1; gap: 2px; min-width: 0; text-align: left; color: var(--dim); }
+.card-dots {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin: -5px -6px 0 0; border-radius: 50%;
+  color: var(--dim); transition: color 0.2s, background-color 0.2s, opacity 0.2s; opacity: 0.55;
+}
+.card:hover .card-dots, .card-dots[aria-expanded='true'], .card-dots:focus-visible { opacity: 1; }
+.card-dots:hover, .card-dots[aria-expanded='true'] { color: var(--fg); background: rgba(255, 255, 255, 0.1); }
 .card-label strong { color: var(--fg); font-weight: 600; letter-spacing: 0.01em; }
+/* Each line stays on one line; what does not fit is cut with an ellipsis (the full text is in the tooltip). */
+.card-label strong, .card-label .lib-author, .card-label .dim { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-author { color: var(--fg); opacity: 0.72; font-size: 12.5px; }
-.card:hover .card-label .dim, .card:focus-visible .card-label .dim { color: var(--fg); }
+.card:hover .card-label .dim, .card:focus-within .card-label .dim { color: var(--fg); }
 .flyer { position: fixed; z-index: 30; transform-origin: 0 0; border-radius: 3px; overflow: hidden; pointer-events: none; box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.75); will-change: transform; }
 .flyer img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 /* ── People filter: All · Mine · a searchable list ──────────── */
 .people {
-  position: absolute; top: 8px; left: 0; right: 0; z-index: 4;
-  display: flex; justify-content: center;
-  padding: 4px clamp(16px, 3vw, 32px);
-  pointer-events: none; /* only the control itself takes clicks, the shelf under it still scrolls */
-  transition: opacity 0.3s var(--ease) 0.5s;
+  grid-column: 2; grid-row: 1; justify-self: center; /* the same spot as the view modes in a book */
+  position: relative;
+  transition: opacity 0.3s var(--ease) 0.25s;
 }
-.people > * { pointer-events: auto; }
-body[data-view='book'] .people { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.3s var(--ease), visibility 0s linear 0.3s; }
+body[data-view='book'] .people { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.25s var(--ease), visibility 0s linear 0.25s; }
 .people-wrap { position: relative; }
 .filter-seg {
   display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px;
@@ -397,7 +406,7 @@ body[data-view='book'] .people { opacity: 0; visibility: hidden; pointer-events:
   font: inherit; color: var(--fg); border: 0; border-radius: 9px;
   background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px var(--faint);
 }
-.people-search:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--blue); }
+.people-search:focus-visible { outline: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3); }
 .people-list { max-height: min(320px, 50vh); overflow-y: auto; scrollbar-width: thin; }
 .person-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border-radius: 9px; text-align: left; color: var(--fg); transition: background-color 0.15s; }
 .person-row:hover, .person-row:focus-visible { background: rgba(255, 255, 255, 0.08); outline: none; }
@@ -407,6 +416,56 @@ body[data-view='book'] .people { opacity: 0; visibility: hidden; pointer-events:
 .avatar { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; color: #fff; }
 .library-empty { position: absolute; left: 50%; top: 50%; z-index: 1; margin: 0; transform: translate(-50%, -50%); text-align: center; }
 body[data-view='book'] .library-empty { display: none; }
+/* Small menu behind the three dots, and the same actions inside a book's Settings */
+.card-menu {
+  position: fixed; z-index: 20; min-width: 170px; padding: 6px;
+  display: grid; gap: 2px;
+  background: #0e0e0e; border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--faint), 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+.menu-item--danger { color: #ff7a8c; }
+.menu-item--danger:hover, .menu-item--danger:focus-visible { background: rgba(255, 90, 110, 0.12); }
+.panel-actions { display: grid; gap: 2px; margin: 4px -8px -6px; padding: 8px 8px 0; box-shadow: 0 -1px 0 var(--faint); }
+
+/* Short confirmations at the bottom of the screen */
+.toast {
+  position: fixed; left: 50%; bottom: 76px; z-index: 60;
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(92vw, 540px); padding: 10px 18px 10px 12px;
+  border-radius: 999px; background: #161616; font-size: 13px;
+  box-shadow: inset 0 0 0 1px var(--faint), 0 18px 44px rgba(0, 0, 0, 0.55);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translate(-50%, 14px);
+  transition: opacity 0.25s var(--ease), transform 0.25s var(--ease), visibility 0s linear 0.25s;
+}
+.toast.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition: opacity 0.25s var(--ease), transform 0.3s var(--ease); }
+.toast-icon { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #2f9560; color: #fff; font-size: 11px; font-weight: 700; }
+.toast.is-error .toast-icon { background: #d64560; }
+.toast-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Rename / delete dialogs */
+.dialog {
+  width: min(420px, calc(100vw - 32px)); padding: 24px;
+  color: var(--fg); background: #0e0e0e; border: 0; border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--faint), 0 30px 80px rgba(0, 0, 0, 0.7);
+}
+.dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
+.dialog:focus, .dialog:focus-visible { outline: none; }
+.dialog h2 { margin: 0 0 14px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.dialog form { display: grid; }
+.dialog label { display: grid; gap: 6px; margin-bottom: 14px; font-size: 13px; font-weight: 500; }
+.dialog input {
+  font: inherit; font-size: 15px; font-weight: 400; color: var(--fg);
+  height: 44px; padding: 0 14px; border: 0; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px var(--faint);
+}
+.dialog input:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--blue); }
+.dialog-text { margin: 0 0 6px; font-size: 14px; }
+.dialog .auth-error { margin-bottom: 10px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.chip-danger { background: #ff5a6e; color: #1a0508; font-weight: 600; box-shadow: none; }
+.chip-danger:hover { box-shadow: none; opacity: 0.9; }
+
 /* ── Sign-in page ────────────────────────────────────────── */
 .auth-page, .profile-page, .upload-page {
   position: fixed; inset: 0; z-index: 40;
@@ -556,6 +615,9 @@ body[data-view='book'] .add-btn { display: none; }
   :root { --top: 92px; --bottom: 52px; }
   .top { grid-template-columns: 1fr auto; grid-template-rows: auto auto; row-gap: 10px; padding-top: 10px; }
   .modes { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  .people { grid-column: 1 / -1; grid-row: 2; }
+  .wordmark { top: 12px; transform: none; } /* the filter takes the second row, so the logo stays on the first */
+  .top-right { grid-column: 2; grid-row: 1; }
   .card-label { font-size: 12px; }
   .modes button { padding: 6px 10px; }
   .lep.open:not(.animating) { scroll-snap-type: x mandatory; }

@@ -76,30 +76,46 @@ const coverIO = new IntersectionObserver((list) => {
 
 const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 150));
 
+const DOTS = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+
 function makeCard(entry) {
   const { data } = entry;
-  const card = document.createElement('button');
-  card.type = 'button';
+  const card = document.createElement('div');
   card.className = 'card';
-  card.setAttribute('aria-label', `Open ${data.title}`);
-  card.innerHTML = '<span class="cover"></span><span class="card-label"><strong></strong><span class="lib-author"></span><span class="dim"></span></span>';
+  card.innerHTML = `
+    <button type="button" class="card-open"><span class="cover"></span></button>
+    <div class="card-foot">
+      <button type="button" class="card-label" tabindex="-1"><strong></strong><span class="lib-author"></span><span class="dim"></span></button>
+      <button type="button" class="card-dots" aria-haspopup="menu" aria-expanded="false" hidden>${DOTS}</button>
+    </div>`;
   const first = data.pages[0];
   if (first) {
     const { r, g, b } = first.paper || {};
     $('.cover', card).style.background = `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
     $('.cover', card).append(createPicture(first, { sizes: '(max-width: 700px) 46vw, 260px' }));
   }
-  $('strong', card).textContent = data.title;
-  $('.lib-author', card).textContent = data.author || '';
-  $('.dim', card).textContent = data.meta || '';
-  card.addEventListener('click', () => navigate(`${data.id}/folded`));
+  const open = () => navigate(`${entry.id}/folded`);
+  $('.card-open', card).addEventListener('click', open);
+  $('.card-label', card).addEventListener('click', open);
+  $('.card-dots', card).addEventListener('click', () => toggleCardMenu(entry));
   // Build the 3D book while the pointer is on its way to the click.
   const warm = () => idle(() => ensureBook(entry));
   card.addEventListener('pointerenter', warm, { once: true });
-  card.addEventListener('focus', warm, { once: true });
+  card.addEventListener('focusin', warm, { once: true });
   grid.append(card);
   coverIO.observe(card);
   return card;
+}
+
+/** Writes a book's current title, author and project line onto its card. */
+function fillCard(entry) {
+  const { data, card } = entry;
+  $('strong', card).textContent = data.title;
+  $('.lib-author', card).textContent = data.author || '';
+  $('.dim', card).textContent = data.meta || '';
+  $('.card-label', card).title = [data.title, data.author, data.meta].filter(Boolean).join('\n');
+  $('.card-open', card).setAttribute('aria-label', `Open ${data.title}`);
+  $('.card-dots', card).setAttribute('aria-label', `More about ${data.title}`);
 }
 
 function ensureBook(entry) {
@@ -116,6 +132,8 @@ function ensureBook(entry) {
 function addEntry(data) {
   const entry = { id: data.id, data, card: null, book: null };
   entry.card = makeCard(entry);
+  fillCard(entry);
+  updateDots(entry);
   entries.push(entry);
   return entry;
 }
@@ -125,7 +143,16 @@ function renderShelf() {
   entries.forEach((e) => (e.card.hidden = !isShown(e)));
 }
 
-/** Picks up books that were published since this page loaded. */
+/** Takes a book off the page (deleted here or by someone else). */
+function removeEntry(entry) {
+  const i = entries.indexOf(entry);
+  if (i >= 0) entries.splice(i, 1);
+  coverIO.unobserve(entry.card);
+  entry.card.remove();
+  if (entry.book && entry.book !== active) entry.book.destroy(); // an open one goes once the library is back
+}
+
+/** Brings the page in line with the library: new books appear, renamed ones update, deleted ones go. */
 async function syncLibrary() {
   let fresh;
   try {
@@ -133,15 +160,47 @@ async function syncLibrary() {
   } catch {
     return;
   }
-  const added = fresh.filter((data) => !entries.some((e) => e.id === data.id));
-  if (!added.length) return;
-  added.forEach(addEntry);
+  let changed = false;
+  for (const data of fresh) {
+    const entry = entries.find((e) => e.id === data.id);
+    if (!entry) {
+      addEntry(data);
+      changed = true;
+    } else if (['title', 'meta', 'author', 'authorSlug', 'credit'].some((k) => (entry.data[k] ?? null) !== (data[k] ?? null))) {
+      applyBook(entry, data);
+      changed = true;
+    }
+  }
+  for (const entry of [...entries]) {
+    if (fresh.some((d) => d.id === entry.id)) continue;
+    removeEntry(entry);
+    changed = true;
+  }
+  if (!changed) return;
+  if (active && !entries.some((e) => e.book === active)) navigate(libraryHash()); // the open book was deleted
+  refreshView();
+}
+
+/** Applies new details (title, project line, credit, author) to a book already on the page. */
+function applyBook(entry, details) {
+  Object.assign(entry.data, { title: details.title, meta: details.meta, credit: details.credit ?? null, author: details.author, authorSlug: details.authorSlug });
+  fillCard(entry);
+}
+
+function refreshView() {
   renderShelf();
   renderPeople();
   renderChrome();
+  refreshActions();
 }
 
 // --- Flying between the grid and the 3D book ---------------------------------------
+// How long each step takes (ms). Lower = snappier.
+const FLIGHT_MS = 440; // the cover between the grid and the face of the stack
+const TURN_IN_MS = 560; // the stack turning into its resting view after it landed
+const TURN_OUT_MS = 340; // ...and straight again before it flies back
+const FLIGHT_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)'; // quick start, soft landing
+
 const flyers = new Set();
 function clearFlyers() {
   flyers.forEach((f) => f.remove());
@@ -169,7 +228,7 @@ function makeFlyer(entry, box) {
 const glide = (el, a, b, ms) =>
   el.animate(
     [{ transform: 'translate(0, 0) scale(1, 1)' }, { transform: `translate(${b.left - a.left}px, ${b.top - a.top}px) scale(${b.width / a.width}, ${b.height / a.height})` }],
-    { duration: ms, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', fill: 'forwards' },
+    { duration: ms, easing: FLIGHT_EASE, fill: 'forwards' },
   ).finished;
 
 /** Waits until the 3D cover has its picture on screen, so swapping the flat cover for it shows no flash. */
@@ -193,7 +252,7 @@ async function flyIn(entry, book) {
   const el = makeFlyer(entry, from);
   entry.card.classList.add('lifted');
   try {
-    await glide(el, from, to, 750);
+    await glide(el, from, to, FLIGHT_MS);
     await coverSettled(book);
   } catch (err) {
     if (err?.name !== 'AbortError') console.warn('[tubus] fly in', err); // an abort means a newer route removed the flyer
@@ -201,7 +260,7 @@ async function flyIn(entry, book) {
   book.el.classList.remove('hold');
   if (!flyers.delete(el)) return book.lep.setTilt(1);
   el.remove();
-  await book.lep.tiltTo(1, 950);
+  await book.lep.tiltTo(1, TURN_IN_MS);
 }
 
 /** The closed stack (already turned face-on) becomes the flat cover and glides back to its place. */
@@ -213,13 +272,188 @@ async function flyOut(entry, from) {
   const el = makeFlyer(entry, from); // exactly over the 3D cover, which disappears in the same frame
   entry.card.classList.add('lifted');
   try {
-    await glide(el, from, to, 750);
+    await glide(el, from, to, FLIGHT_MS);
   } catch {}
   if (flyers.delete(el)) {
     el.remove();
     entry.card.classList.remove('lifted');
   }
 }
+
+// --- Short confirmations ("renamed", "deleted", …) ----------------------------------------
+const toastEl = $('[data-toast]');
+let toastTimer = 0;
+function toast(text, kind = 'ok') {
+  clearTimeout(toastTimer);
+  toastEl.classList.remove('show');
+  void toastEl.offsetWidth; // restart the transition if one is already showing
+  $('.toast-text', toastEl).textContent = text;
+  $('.toast-icon', toastEl).textContent = kind === 'ok' ? '✓' : '!';
+  toastEl.classList.toggle('is-error', kind !== 'ok');
+  toastEl.classList.add('show');
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), kind === 'ok' ? 3400 : 5000);
+}
+
+// --- Managing a book: rename · delete · download ---------------------------------------
+function canManage(entry) {
+  return !!auth.user && entry.data.authorSlug === auth.user.slug; // the server checks again
+}
+
+/** The dots on a card show only when there is something to do: manage it, or download its PDF. */
+function updateDots(entry) {
+  $('.card-dots', entry.card).hidden = !(canManage(entry) || entry.data.pdfUrl);
+}
+const cardMenu = $('[data-card-menu]');
+const bookActions = $('[data-book-actions]');
+let menuEntry = null;
+let menuDots = null;
+
+const openEntry = () => entries.find((e) => e.book === active); // the book on screen, if any
+
+/** Shows only what this person may do with this book. */
+function applyActions(root, entry) {
+  const manage = !!entry && canManage(entry);
+  const pdf = !!entry?.data.pdfUrl;
+  $('[data-act="rename"]', root).hidden = !manage;
+  $('[data-act="delete"]', root).hidden = !manage;
+  $('[data-act="download"]', root).hidden = !pdf;
+  return manage || pdf;
+}
+
+/** The dots on each card, and the actions in Settings, follow who is signed in. */
+function refreshActions() {
+  entries.forEach(updateDots);
+  bookActions.hidden = !applyActions(bookActions, openEntry());
+  if (menuEntry && !entries.includes(menuEntry)) closeCardMenu();
+}
+
+function closeCardMenu() {
+  cardMenu.hidden = true;
+  menuDots?.setAttribute('aria-expanded', 'false');
+  menuEntry = menuDots = null;
+}
+
+function toggleCardMenu(entry) {
+  const dots = $('.card-dots', entry.card);
+  if (menuEntry === entry) return closeCardMenu();
+  closeCardMenu();
+  if (!applyActions(cardMenu, entry)) return;
+  menuEntry = entry;
+  menuDots = dots;
+  dots.setAttribute('aria-expanded', 'true');
+  cardMenu.hidden = false;
+  const r = dots.getBoundingClientRect();
+  const w = cardMenu.offsetWidth;
+  const h = cardMenu.offsetHeight;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w));
+  const top = r.bottom + 6 + h > innerHeight ? Math.max(8, r.top - 6 - h) : r.bottom + 6;
+  cardMenu.style.left = `${left}px`;
+  cardMenu.style.top = `${top}px`;
+  $('.menu-item:not([hidden])', cardMenu)?.focus();
+}
+
+/** Saves the PDF to disk (a plain link would only open it in the tab, the file lives on another address). */
+async function downloadPdf(data) {
+  if (!data.pdfUrl) return;
+  try {
+    const res = await fetch(data.pdfUrl);
+    if (!res.ok) throw new Error(res.status);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = `${data.title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'leporello'}.pdf`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch {
+    window.open(data.pdfUrl, '_blank', 'noopener');
+  }
+}
+
+const renameDialog = $('#rename-dialog');
+const renameForm = $('#rename-form');
+const renameError = $('[data-rename-error]');
+const deleteDialog = $('#delete-dialog');
+const deleteError = $('[data-delete-error]');
+let dialogEntry = null;
+
+function act(entry, what) {
+  if (!entry) return;
+  closeCardMenu();
+  closeSettings();
+  dialogEntry = entry;
+  if (what === 'download') return downloadPdf(entry.data);
+  if (what === 'rename') {
+    const f = renameForm.elements;
+    f.title.value = entry.data.title;
+    f.meta.value = entry.data.meta || '';
+    f.credit.value = entry.data.credit || '';
+    renameError.textContent = '';
+    renameDialog.showModal();
+    f.title.select();
+  } else if (what === 'delete') {
+    $('[data-delete-text]').textContent = `“${entry.data.title}” will disappear from the library for everyone.`;
+    deleteError.textContent = '';
+    deleteDialog.showModal();
+  }
+}
+
+$$('[data-act]', cardMenu).forEach((b) => b.addEventListener('click', () => act(menuEntry, b.dataset.act)));
+$$('[data-act]', bookActions).forEach((b) => b.addEventListener('click', () => act(openEntry(), b.dataset.act)));
+$$('[data-dialog-cancel]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
+[renameDialog, deleteDialog].forEach((d) => d.addEventListener('click', (e) => e.target === d && d.close())); // the backdrop
+document.addEventListener('click', (e) => menuEntry && !e.target.closest('.card-menu, .card-dots') && closeCardMenu());
+shelfEl.addEventListener('scroll', closeCardMenu, { passive: true });
+
+const MANAGE_ERRORS = {
+  bad_title: 'Give the book a title.',
+  no_such_book: 'This book is no longer there.',
+  not_signed_in: 'Your session expired. Please sign in again.',
+  not_found: 'The server does not support this yet. Try again a little later.',
+  network: 'Cannot reach the server. Try again.',
+};
+
+renameForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = renameForm.elements;
+  const entry = dialogEntry;
+  if (!f.title.value.trim()) return (renameError.textContent = MANAGE_ERRORS.bad_title);
+  $('[data-rename-submit]').disabled = true;
+  try {
+    const oldTitle = entry.data.title;
+    const { book } = await auth.call(`/books/${entry.id}`, { method: 'PATCH', body: { title: f.title.value, meta: f.meta.value, credit: f.credit.value } });
+    applyBook(entry, book);
+    renameDialog.close();
+    refreshView();
+    toast(book.title !== oldTitle ? `Leporello renamed to “${book.title}”` : `Details of “${book.title}” updated`);
+  } catch (err) {
+    renameError.textContent = MANAGE_ERRORS[err.code] || 'Something went wrong. Try again.';
+    if (err.code === 'no_such_book') syncLibrary();
+  } finally {
+    $('[data-rename-submit]').disabled = false;
+  }
+});
+
+$('[data-delete-confirm]').addEventListener('click', async () => {
+  const entry = dialogEntry;
+  const button = $('[data-delete-confirm]');
+  button.disabled = true;
+  try {
+    await auth.call(`/books/${entry.id}`, { method: 'DELETE' });
+    deleteDialog.close();
+    toast(`Leporello “${entry.data.title}” deleted`);
+    const wasOpen = entry.book && entry.book === active;
+    removeEntry(entry);
+    if (wasOpen) navigate(libraryHash()); // the open book folds away, the library takes over
+    refreshView();
+    loadPeople(true);
+  } catch (err) {
+    deleteError.textContent = MANAGE_ERRORS[err.code] || 'Something went wrong. Try again.';
+    if (err.code === 'no_such_book') syncLibrary();
+  } finally {
+    button.disabled = false;
+  }
+});
 
 // --- Header / footer follow the open book -----------------------------------
 const titleEl = $('[data-title]');
@@ -246,6 +480,7 @@ function renderChrome() {
   vector.disabled = !hasPdf;
   vector.parentElement.title = hasPdf ? '' : 'Add the PDF to this book\'s folder in /pages to enable';
   vector.checked = hasPdf && vectorPref;
+  bookActions.hidden = !applyActions(bookActions, openEntry());
 
   if (!active) {
     hint.textContent = mobile() ? 'Tap a book to open' : 'Click a book to open';
@@ -432,7 +667,7 @@ async function showLibrary(token) {
   if (token !== routeToken || active !== leaving) return;
   leaving.close(); // the closed stack, whatever mode the book was in
   if (!reducedMotion()) {
-    await leaving.lep.tiltTo(0, 600); // turn it face-on, ready to become the flat cover again
+    await leaving.lep.tiltTo(0, TURN_OUT_MS); // turn it face-on, ready to become the flat cover again
     if (token !== routeToken || active !== leaving) return;
   }
   const from = leaving.lep.coverRect();
@@ -448,7 +683,8 @@ async function showLibrary(token) {
   });
   if (handOver) setTimeout(() => leaving.el.classList.remove('snap'), 80);
   renderChrome();
-  if (entry && !reducedMotion()) flyOut(entry, from);
+  if (!entry) leaving.destroy(); // it was deleted while open
+  else if (!reducedMotion()) flyOut(entry, from);
 }
 
 function openBook(route) {
@@ -510,6 +746,8 @@ modeButtons.forEach((b) => b.addEventListener('click', () => active && !active.e
 
 // --- Keyboard ---------------------------------------------------------------
 addEventListener('keydown', (e) => {
+  if (document.querySelector('dialog[open]')) return; // a dialog handles Escape itself
+  if (e.key === 'Escape' && menuEntry) return closeCardMenu();
   if (e.key === 'Escape' && menuIsOpen()) return closePeopleMenu();
   if (e.key === 'Escape' && profileOpen()) return closeProfile();
   if (e.key === 'Escape' && uploadOpen()) return uploader.busy || closeUpload();
@@ -676,9 +914,11 @@ function openProfile() {
 const uploadPage = $('[data-upload-page]');
 const uploader = createUploader(uploadPage, {
   onClose: () => closeUpload(),
-  onPublished: async () => {
+  onPublished: async (id) => {
     closeUpload();
     await syncLibrary();
+    const added = entries.find((e) => e.id === id);
+    if (added) toast(`Leporello “${added.data.title}” published`);
     await loadPeople(true);
     if (auth.user) navigate(`u/${auth.user.slug}`); // show the new book on its author's shelf
   },
@@ -780,6 +1020,7 @@ authForm.addEventListener('submit', async (e) => {
 setAuthMode(false);
 auth.onChange(renderAccount);
 auth.onChange(() => {
+  refreshActions();
   if (auth.user) loadPeople(true);
   else {
     people = [];

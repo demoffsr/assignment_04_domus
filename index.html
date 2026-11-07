@@ -36,12 +36,19 @@
         <button type="button" data-mode="pages" aria-pressed="false">Page by page</button>
       </nav>
 
+      <nav class="people" data-people aria-label="People" hidden></nav>
+
       <div class="top-right">
         <div class="settings">
           <button type="button" class="settings-btn" aria-expanded="false" aria-controls="settings-panel">Settings</button>
           <div id="settings-panel" class="settings-panel" hidden>
             <label><input type="checkbox" id="opt-zigzag" /> Keep slight zigzag</label>
             <label><input type="checkbox" id="opt-vector" /> Vector pages (PDF)</label>
+            <div class="panel-actions" data-book-actions hidden>
+              <button type="button" class="menu-item" data-act="rename">Rename</button>
+              <button type="button" class="menu-item" data-act="download">Download PDF</button>
+              <button type="button" class="menu-item menu-item--danger" data-act="delete">Delete</button>
+            </div>
           </div>
         </div>
 
@@ -60,7 +67,6 @@
 
     <main id="stage" class="stage" tabindex="-1">
       <!-- One .book per library entry is appended here (see #book-tpl). -->
-      <nav class="people" data-people aria-label="People" hidden></nav>
       <p class="library-empty dim" data-library-empty hidden></p>
       <div class="shelf" data-shelf>
         <div class="grid" data-grid></div>
@@ -155,6 +161,45 @@
         <button type="button" class="profile-back" data-profile-close>Back to Tubus</button>
       </div>
     </section>
+
+    <!-- The small menu behind the three dots on a card (one shared element). -->
+    <div class="card-menu" role="menu" data-card-menu hidden>
+      <button type="button" class="menu-item" role="menuitem" data-act="rename">Rename</button>
+      <button type="button" class="menu-item" role="menuitem" data-act="download">Download PDF</button>
+      <button type="button" class="menu-item menu-item--danger" role="menuitem" data-act="delete">Delete</button>
+    </div>
+
+    <dialog class="dialog" id="rename-dialog" aria-labelledby="rename-title">
+      <form id="rename-form" novalidate>
+        <h2 id="rename-title">Rename leporello</h2>
+        <label>Title
+          <input name="title" maxlength="80" autocomplete="off" required />
+        </label>
+        <label>Project line
+          <input name="meta" maxlength="80" autocomplete="off" placeholder="A07 · Walk the line" />
+        </label>
+        <label>Credit
+          <input name="credit" maxlength="120" autocomplete="off" placeholder="Leave empty to use your name" />
+        </label>
+        <p class="auth-error" role="alert" data-rename-error></p>
+        <div class="dialog-actions">
+          <button type="button" class="chip chip-link" data-dialog-cancel>Cancel</button>
+          <button type="submit" class="chip chip-solid" data-rename-submit>Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="dialog" id="delete-dialog" aria-labelledby="delete-title" autofocus tabindex="-1">
+      <h2 id="delete-title">Delete this leporello?</h2>
+      <p class="dim dialog-text" data-delete-text></p>
+      <p class="auth-error" role="alert" data-delete-error></p>
+      <div class="dialog-actions">
+        <button type="button" class="chip chip-link" data-dialog-cancel>Cancel</button>
+        <button type="button" class="chip chip-danger" data-delete-confirm>Delete</button>
+      </div>
+    </dialog>
+
+    <div class="toast" role="status" aria-live="polite" data-toast><span class="toast-icon" aria-hidden="true"></span><span class="toast-text"></span></div>
 
     <section class="upload-page" data-upload-page aria-labelledby="upload-title">
       <p class="auth-brand">Tubus</p>
