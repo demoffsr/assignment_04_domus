@@ -4,6 +4,7 @@ import { createBook } from './book.js';
 import { auth } from './auth.js';
 import { createUploader } from './upload.js';
 import { zip } from './zip.js';
+import { inviteLink, renderQr } from './invite.js';
 
 if (libraryError) {
   document.querySelector('[data-hint]').textContent = 'The library could not be loaded. Try again in a moment.';
@@ -544,7 +545,7 @@ function askDelete(list) {
 $$('[data-act]', cardMenu).forEach((b) => b.addEventListener('click', () => act(menuEntry, b.dataset.act)));
 $$('[data-act]', bookActions).forEach((b) => b.addEventListener('click', () => act(openEntry(), b.dataset.act)));
 $$('[data-dialog-cancel]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
-[renameDialog, deleteDialog].forEach((d) => d.addEventListener('click', (e) => e.target === d && d.close())); // the backdrop
+[renameDialog, deleteDialog, $('#invite-dialog')].forEach((d) => d.addEventListener('click', (e) => e.target === d && d.close())); // the backdrop
 document.addEventListener('click', (e) => menuEntry && !e.target.closest('.card-menu, .card-dots') && closeCardMenu());
 shelfEl.addEventListener('scroll', closeCardMenu, { passive: true });
 
@@ -986,6 +987,19 @@ const uploadOpen = () => document.documentElement.classList.contains('upload-ope
 const overlayOpen = () => profileOpen() || uploadOpen();
 let creating = false;
 
+// An invite link (?invite=CODE) brings the code with it: it fills the form and hides the field.
+// The code is taken out of the address bar right away.
+let linkInvite = '';
+{
+  const url = new URL(location.href);
+  if (url.searchParams.has('invite')) {
+    linkInvite = (url.searchParams.get('invite') || '').trim();
+    url.searchParams.delete('invite');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+}
+const inviteLabel = authForm.elements.invite.closest('label');
+
 const AUTH_ERRORS = {
   bad_invite: 'That invite code is not right.',
   bad_username: 'Username: 3–24 characters, a–z, 0–9, dot, dash or underscore.',
@@ -1021,12 +1035,15 @@ function renderAccount() {
   appShell.forEach((el) => (el.inert = !user || overlayOpen()));
   accountBtn.textContent = user?.displayName || '';
   closeAccountMenu();
+  if (user) linkInvite = ''; // a signed-in browser has used the link (or never needed it)
   if (!user && !wasOut) {
     // Just signed out: start from a clean form.
     authForm.reset();
     setAuthMode(false);
   }
-  if (!user) authForm.elements.invite.focus({ preventScroll: true });
+  inviteLabel.hidden = !!linkInvite;
+  if (linkInvite) authForm.elements.invite.value = linkInvite;
+  if (!user) (linkInvite ? authForm.elements.username : authForm.elements.invite).focus({ preventScroll: true });
   else if (wasOut) document.activeElement?.blur();
 }
 
@@ -1070,6 +1087,47 @@ function setEditingUsername(on) {
     usernameForm.elements.username.focus({ preventScroll: true });
   }
 }
+
+// --- Invite: a pop-up with a link and a QR code anyone signed in can hand out -------
+const inviteDialog = $('#invite-dialog');
+const inviteField = $('[data-invite-link]');
+const inviteCopy = $('[data-invite-copy]');
+const inviteError = $('[data-invite-error]');
+let inviteUrl = '';
+let inviteCopyTimer = 0;
+
+$('[data-invite-open]').addEventListener('click', async () => {
+  closeAccountMenu();
+  inviteError.textContent = '';
+  clearTimeout(inviteCopyTimer);
+  inviteCopy.textContent = 'Copy';
+  if (!inviteUrl) {
+    try {
+      inviteUrl = inviteLink(await auth.invite());
+    } catch (err) {
+      return toast(AUTH_ERRORS[err.code] || 'Could not get the invite. Try again.', 'error');
+    }
+    renderQr($('[data-invite-qr]'), inviteUrl);
+    inviteField.value = inviteUrl;
+  }
+  inviteDialog.showModal();
+});
+
+inviteField.addEventListener('focus', () => inviteField.select());
+
+inviteCopy.addEventListener('click', async () => {
+  inviteError.textContent = '';
+  try {
+    await navigator.clipboard.writeText(inviteUrl);
+  } catch {
+    inviteField.select();
+    inviteError.textContent = 'Could not copy automatically. The link is selected: copy it by hand.';
+    return;
+  }
+  inviteCopy.textContent = 'Copied ✓';
+  clearTimeout(inviteCopyTimer);
+  inviteCopyTimer = setTimeout(() => (inviteCopy.textContent = 'Copy'), 2000);
+});
 
 function openProfile() {
   nameForm.elements.displayName.value = auth.user.displayName;
@@ -1179,23 +1237,33 @@ authForm.addEventListener('submit', async (e) => {
   authError.textContent = '';
   authSubmit.disabled = true;
   try {
-    const input = { invite: f.invite.value.trim(), username: f.username.value.trim() };
+    const input = { invite: linkInvite || f.invite.value.trim(), username: f.username.value.trim() };
     if (creating) await auth.register({ ...input, displayName: f.displayName.value });
     else await auth.signIn(input);
     authForm.reset(); // a signed-in browser no longer needs the code on screen
   } catch (err) {
     authError.textContent = AUTH_ERRORS[err.code] || 'Something went wrong. Try again.';
+    if (err.code === 'bad_invite' && linkInvite) {
+      // The link is out of date (the code was changed): let the person type a code instead.
+      linkInvite = '';
+      inviteLabel.hidden = false;
+      f.invite.value = '';
+      authError.textContent = 'This invite link is out of date. Ask for a new one, or type the code.';
+      f.invite.focus({ preventScroll: true });
+    }
   } finally {
     authSubmit.disabled = false;
   }
 });
 
-setAuthMode(false);
+setAuthMode(!!linkInvite); // a link is for newcomers
 auth.onChange(renderAccount);
 auth.onChange(() => {
   refreshActions();
   if (auth.user) loadPeople(true);
   else {
+    inviteUrl = ''; // the code is for members only
+    inviteDialog.close();
     people = [];
     renderPeople();
     renderChrome();

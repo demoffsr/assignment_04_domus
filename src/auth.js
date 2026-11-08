@@ -58,6 +58,10 @@ export const auth = {
     const { user } = await call('/me', { method: 'PATCH', body: { username, displayName } });
     save({ ...session, user });
   },
+  /** The shared invite code (members only). */
+  async invite() {
+    return (await call('/invite')).invite;
+  },
   async signOut() {
     try { await call('/logout', { method: 'POST' }); } catch {}
     save(null);

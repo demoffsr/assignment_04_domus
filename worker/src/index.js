@@ -194,6 +194,13 @@ async function people(request, env) {
   return reply({ people: results.map((r) => ({ name: r.display_name, slug: r.slug, books: r.books, me: r.id === user.id })) });
 }
 
+/** The shared invite code, for the signed-in person's Invite link and QR. Members only. */
+async function invite(request, env) {
+  await requireUser(request, env);
+  if (!env.INVITE_CODE) throw new HttpError(500, 'invite_not_configured');
+  return reply({ invite: env.INVITE_CODE }, 200, { 'cache-control': 'no-store' });
+}
+
 // --- books ------------------------------------------------------------------
 async function ownBook(env, user, id, { allowAdmin = false } = {}) {
   const book = await env.DB.prepare('SELECT * FROM books WHERE id = ? AND deleted_at IS NULL').bind(id).first();
@@ -307,6 +314,7 @@ async function route(request, env) {
     return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'application/octet-stream', 'access-control-allow-origin': '*' } });
   }
   if (get && pathname === '/api/people') return people(request, env);
+  if (get && pathname === '/api/invite') return invite(request, env);
   if (post && pathname === '/api/register') return register(request, env);
   if (post && pathname === '/api/login') return login(request, env);
   if (post && pathname === '/api/logout') return logout(request, env);

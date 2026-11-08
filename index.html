@@ -58,6 +58,7 @@
           <button type="button" class="account-btn" aria-expanded="false" aria-controls="account-panel">Sign in</button>
           <div id="account-panel" class="settings-panel account-panel" hidden>
             <p class="menu-label">Account</p>
+            <button type="button" class="menu-item" data-invite-open>Invite</button>
             <button type="button" class="menu-item" data-profile-open>Edit profile</button>
             <button type="button" class="menu-item" data-signout>Sign out</button>
           </div>
@@ -188,6 +189,20 @@
           <button type="submit" class="chip chip-solid" data-rename-submit>Save</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog class="dialog invite-dialog" id="invite-dialog" aria-labelledby="invite-title" autofocus tabindex="-1">
+      <button type="button" class="icon-btn dialog-x" data-dialog-cancel aria-label="Close" title="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <h2 id="invite-title">Invite people</h2>
+      <p class="dim dialog-text">Anyone with this link or QR code can join. They only need to choose a name.</p>
+      <div class="invite-qr" data-invite-qr></div>
+      <div class="invite-link">
+        <input type="text" readonly spellcheck="false" aria-label="Invite link" data-invite-link />
+        <button type="button" class="chip chip-solid" data-invite-copy>Copy</button>
+      </div>
+      <p class="auth-error" role="alert" data-invite-error></p>
     </dialog>
 
     <dialog class="dialog" id="delete-dialog" aria-labelledby="delete-title" autofocus tabindex="-1">
