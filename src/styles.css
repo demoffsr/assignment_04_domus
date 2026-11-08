@@ -7,13 +7,11 @@
   --blue: #2f5bff;
   --pink: #ff4fb0;
   --ease: cubic-bezier(0.65, 0, 0.35, 1);
+  --out: cubic-bezier(0.22, 1, 0.36, 1); /* for things that arrive: fast, then settling */
   --top: 64px;
   --bottom: 56px;
   color-scheme: dark;
-  --backdrop:
-    radial-gradient(55% 45% at 18% 28%, rgba(47, 91, 255, 0.10), transparent 70%),
-    radial-gradient(50% 45% at 85% 80%, rgba(255, 79, 176, 0.07), transparent 70%),
-    radial-gradient(110% 85% at 50% 48%, #2a2a2f 0%, #18181b 48%, #070708 100%);
+  --backdrop: radial-gradient(110% 85% at 50% 48%, #2a2a2f 0%, #18181b 48%, #070708 100%);
 }
 
 * { box-sizing: border-box; }
@@ -32,10 +30,28 @@ html, body {
 }
 
 /* Graphite light behind the pages so black sheets don't merge with the page. */
-body {
-  background: var(--backdrop);
-  background-attachment: fixed;
+html { background: var(--backdrop) fixed; }
+body { background: none; }
+
+/* The blue and pink glows drift slowly over the graphite. Only transform moves, so it stays on the GPU. */
+.ambient { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.ambient::before, .ambient::after { content: ''; position: absolute; will-change: transform; }
+.ambient::before {
+  left: -29vw; top: -10vh; width: 94vw; height: 76vh;
+  background: radial-gradient(closest-side, rgba(47, 91, 255, 0.1000) 0%, rgba(47, 91, 255, 0.0986) 8%, rgba(47, 91, 255, 0.0945) 17%, rgba(47, 91, 255, 0.0879) 25%, rgba(47, 91, 255, 0.0790) 33%, rgba(47, 91, 255, 0.0683) 42%, rgba(47, 91, 255, 0.0563) 50%, rgba(47, 91, 255, 0.0435) 58%, rgba(47, 91, 255, 0.0309) 67%, rgba(47, 91, 255, 0.0191) 75%, rgba(47, 91, 255, 0.0093) 83%, rgba(47, 91, 255, 0.0026) 92%, rgba(47, 91, 255, 0.0000) 100%);
+  animation: drift-blue 28s ease-in-out infinite alternate;
 }
+.ambient::after {
+  left: 42vw; top: 42vh; width: 85vw; height: 76vh;
+  background: radial-gradient(closest-side, rgba(255, 79, 176, 0.0700) 0%, rgba(255, 79, 176, 0.0690) 8%, rgba(255, 79, 176, 0.0662) 17%, rgba(255, 79, 176, 0.0615) 25%, rgba(255, 79, 176, 0.0553) 33%, rgba(255, 79, 176, 0.0478) 42%, rgba(255, 79, 176, 0.0394) 50%, rgba(255, 79, 176, 0.0305) 58%, rgba(255, 79, 176, 0.0216) 67%, rgba(255, 79, 176, 0.0134) 75%, rgba(255, 79, 176, 0.0065) 83%, rgba(255, 79, 176, 0.0018) 92%, rgba(255, 79, 176, 0.0000) 100%);
+  animation: drift-pink 34s ease-in-out infinite alternate;
+}
+@keyframes drift-blue { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(10vw, 8vh, 0) scale(1.08); } }
+@keyframes drift-pink { from { transform: translate3d(0, 0, 0) scale(1.04); } to { transform: translate3d(-10vw, -7vh, 0) scale(0.96); } }
+@media (prefers-reduced-motion: reduce) { .ambient::before, .ambient::after { animation: none; } }
+/* The same glow drawn by a shader (src/ambient.js), dithered so it has no rings; the CSS above is the fallback. */
+.ambient-gl { position: fixed; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; pointer-events: none; }
+html.gl-ambient .ambient { display: none; }
 body { display: grid; grid-template-rows: var(--top) 1fr var(--bottom); height: 100dvh; }
 body.no-scroll { touch-action: none; }
 
@@ -537,14 +553,18 @@ body.selecting .toast { bottom: 92px; }
   position: fixed; inset: 0; z-index: 40;
   display: none; flex-direction: column; align-items: center;
   padding: 64px 24px 32px;
-  background: var(--backdrop);
   overflow-y: auto;
 }
+/* These pages are see-through so the moving glow shows; the site behind them is hidden instead of covered. */
+:is(html.signed-out, html.profile-open, html.upload-open) body > :not(.ambient, .ambient-gl, .auth-page, .profile-page, .upload-page, .toast, dialog, template, script) { opacity: 0; visibility: hidden; }
 html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page { display: flex; }
 .auth-brand {
   position: absolute; top: 24px; left: clamp(16px, 3vw, 32px);
   margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.015em; line-height: 1;
 }
+.auth-brand--home { transition: opacity 0.2s; }
+.auth-brand--home:hover { opacity: 0.6; }
+.upload-page[data-view='progress'] .auth-brand--home, .upload-page[data-view='failed'] .auth-brand--home { pointer-events: none; } /* not while a publish is in flight or waiting on a retry */
 .auth-card { width: min(400px, 100%); margin: auto; } /* centred, and scrolls from the top when tall */
 .auth-card h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
 .auth-lead { margin: 0 0 22px; font-size: 14px; }
@@ -612,7 +632,7 @@ body[data-view='book'] .add-btn { display: none; }
   background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px var(--faint);
 }
 .upload-card input:focus-visible, .upload-card select:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--blue); }
-.upload-card form { display: grid; max-width: 420px; }
+
 .upload-card label.dropzone {
   display: grid; place-items: center; gap: 6px; text-align: center;
   padding: 44px 20px; border-radius: 14px; cursor: pointer;
@@ -620,25 +640,56 @@ body[data-view='book'] .add-btn { display: none; }
   transition: box-shadow 0.2s, background-color 0.2s;
 }
 .dropzone strong { font-size: 16px; font-weight: 600; }
-.upload-card label.dropzone:hover, .upload-card label.dropzone.dragover { background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1.5px var(--blue); }
+.upload-card label.dropzone:hover { background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1.5px var(--blue); }
+/* While a file is dragged over the page: the whole page is the target */
+.upload-page::after {
+  content: ''; position: fixed; inset: 12px; z-index: 1; pointer-events: none;
+  border-radius: 22px; background: rgba(47, 91, 255, 0.07); box-shadow: inset 0 0 0 1.5px var(--blue);
+  opacity: 0; transition: opacity 0.2s;
+}
+.upload-page.is-dragging::after { opacity: 1; }
+.upload-page.is-dragging label.dropzone { background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1.5px var(--blue); }
 .upload-status { min-height: 1.35em; margin: 12px 0; font-size: 13px; }
-.upload-card .section-note { margin: 10px 0 24px; }
 .upload-card .profile-back { width: auto; padding-left: 0; text-align: left; }
-.upload-options { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 24px; margin-bottom: 14px; }
-.upload-options label { margin: 0; }
+.upload-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
+.upload-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
+.upload-options label { display: flex; align-items: center; gap: 10px; margin: 0; }
+.upload-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 0 auto; font-size: 13px; }
 .upload-options label.check { display: flex; align-items: center; gap: 8px; height: 44px; font-weight: 400; }
 .upload-options input[type='checkbox'] { accent-color: var(--blue); margin: 0; }
-.upload-summary { margin: 0 0 12px; font-size: 13px; color: var(--fg); }
-.upload-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; margin-bottom: 8px; }
-.thumb-page { position: relative; aspect-ratio: 148 / 210; border-radius: 4px; overflow: hidden; background: #151515; transition: opacity 0.2s, transform 0.2s var(--ease); }
+.upload-summary { color: var(--fg); }
+.upload-strip {
+  position: relative; isolation: isolate; height: clamp(140px, 25vh, 210px); margin: 14px 0 18px;
+  border-radius: 10px; overflow: hidden; /* the cut edges are rounded too */
+}
+.upload-grid {
+  display: flex; gap: 10px; height: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* Pages melt into the background on a side that has more to scroll to; JS sets the widths as it scrolls */
+  --fade-l: 0px; --fade-r: 0px;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+}
+.upload-grid::-webkit-scrollbar { display: none; }
+.thumb-page { position: relative; flex: none; height: 100%; aspect-ratio: 148 / 210; border-radius: 10px; overflow: hidden; background: #151515; }
 .thumb-page canvas { display: block; width: 100%; height: 100%; }
 .thumb-page span {
   position: absolute; left: 4px; bottom: 4px; min-width: 20px; padding: 1px 5px; border-radius: 999px;
   background: rgba(0, 0, 0, 0.72); font-size: 11px; font-variant-numeric: tabular-nums;
 }
-.thumb-page[aria-pressed='false'] { opacity: 0.28; }
-.thumb-page:hover { transform: translateY(-2px); }
 .upload-page.is-busy .thumb-page { pointer-events: none; }
+
+/* With a PDF loaded the page is one screen, with no scrolling: pages in a row, details in a row, Publish at the bottom */
+.upload-page.has-preview[data-view='edit'] { padding-top: 56px; padding-bottom: 24px; }
+.upload-page.has-preview[data-view='edit'] .upload-card { width: min(960px, 100%); }
+.upload-page.has-preview .upload-status, .upload-page.has-preview .upload-lead { display: none; }
+.upload-card form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 0 16px; }
+.upload-card form label { margin-bottom: 0; }
+.upload-actions { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
+.upload-actions .profile-back { margin: 0; padding-top: 10px; padding-bottom: 10px; }
+.upload-actions .auth-error { flex: 1; min-height: 0; margin: 0; text-align: right; }
+.upload-actions .auth-submit { flex: none; min-width: 176px; padding: 0 32px; }
+@media (max-width: 700px) { .upload-card form { grid-template-columns: 1fr; } .upload-card form label { margin-bottom: 14px; } }
 @media (max-width: 700px) { .add-long { display: none; } }
 
 /* Publishing, published and failed screens */
@@ -733,4 +784,54 @@ body[data-view='book'] .add-btn { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .view, .thumb, .modes button { transition-duration: 0.01s; }
+}
+
+/* ── Opening and closing ─────────────────────────────────────
+   Pop-ups, menus and full pages fade and rise in, and fade out when they close. Only opacity and
+   transform move. The closing part relies on `display` being animatable (@starting-style and
+   transition-behavior); a browser without it simply cuts, as before. */
+
+/* The site behind a full page fades while the page fades in, so the two cross-fade. */
+.top, .stage, .bottom, .selbar { transition: opacity 0.28s var(--out), visibility 0.28s; }
+
+/* Full pages: sign in, profile, add a leporello */
+.auth-page, .profile-page, .upload-page { opacity: 0; transition: opacity 0.28s var(--out), display 0.28s allow-discrete; }
+html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page { opacity: 1; }
+.auth-card, .upload-card { transform: translateY(14px); transition: transform 0.4s var(--out); }
+html.signed-out .auth-card, html.profile-open .auth-card, html.upload-open .upload-card { transform: none; }
+@starting-style {
+  html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page { opacity: 0; }
+  html.signed-out .auth-card, html.profile-open .auth-card, html.upload-open .upload-card { transform: translateY(14px); }
+}
+
+/* Dialogs (invite, rename, delete) and their dimmed backdrop */
+.dialog { opacity: 1; transform: none; transition: opacity 0.2s var(--out), transform 0.26s var(--out), overlay 0.26s allow-discrete, display 0.26s allow-discrete; }
+.dialog:not([open]) { opacity: 0; transform: translateY(10px) scale(0.97); }
+.dialog::backdrop { opacity: 1; transition: opacity 0.26s var(--out), overlay 0.26s allow-discrete, display 0.26s allow-discrete; }
+.dialog:not([open])::backdrop { opacity: 0; }
+@starting-style {
+  .dialog[open] { opacity: 0; transform: translateY(10px) scale(0.97); }
+  .dialog[open]::backdrop { opacity: 0; }
+}
+
+/* Menus and pop-overs: account, settings, a card's three dots, the people list */
+.settings-panel, .card-menu, .people-menu { opacity: 1; transition: opacity 0.16s var(--out), transform 0.2s var(--out), display 0.2s allow-discrete; }
+.settings-panel { transform-origin: top right; }
+.card-menu { transform-origin: top left; }
+.settings-panel[hidden], .card-menu[hidden] { opacity: 0; transform: translateY(-6px) scale(0.97); }
+.people-menu { transform-origin: top center; }
+.people-menu[hidden] { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.97); }
+@starting-style {
+  .settings-panel:not([hidden]), .card-menu:not([hidden]) { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  .people-menu:not([hidden]) { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.97); }
+}
+
+/* Screens inside Add a leporello (publishing, done, failed) and the preview once a PDF is read */
+.upload-state, [data-upload-preview]:not([hidden]) { animation: rise-in 0.4s var(--out) both; }
+@keyframes rise-in { from { opacity: 0; transform: translateY(12px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-page, .profile-page, .upload-page, .auth-card, .upload-card, .dialog, .dialog::backdrop,
+  .settings-panel, .card-menu, .people-menu, .top, .stage, .bottom, .selbar { transition-duration: 0.01s; }
+  .upload-state, [data-upload-preview] { animation: none; }
 }

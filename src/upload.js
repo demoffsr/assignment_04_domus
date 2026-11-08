@@ -1,5 +1,5 @@
 // The "Add a leporello" page. Everything up to Publish happens in the browser:
-// a PDF (or page images) is read, A4-landscape sheets are cut into A5 pages,
+// a PDF is read, A4-landscape sheets are cut into A5 pages,
 // the person previews the result, and only then are the pages encoded and sent.
 import { auth } from './auth.js';
 import { openPdfFile, pageSize, renderPageTo } from './pdf.js';
@@ -8,13 +8,11 @@ const ASPECT = 148 / 210; // A5 portrait, the shape every page is shown in
 const PANEL_W = 1680; // widest variant, as in the existing books
 const PANEL_H = Math.round(PANEL_W / ASPECT);
 const WIDTHS = [420, 840, 1680];
-const THUMB_H = 280;
+const THUMB_H = 340;
 const MAX_PAGES = 120;
 const MAX_PDF = 80 * 1024 * 1024; // keep in step with the Worker
 
-const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 const isPdf = (f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-const isImage = (f) => /^image\/(png|jpeg|webp)$/.test(f.type) || /\.(png|jpe?g|webp)$/i.test(f.name);
 const pad = (n) => String(n).padStart(2, '0');
 const canvasOf = (w, h) => Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)) });
 const toBlob = (canvas, type, quality) => new Promise((resolve) => canvas.toBlob(resolve, type, quality));
@@ -71,7 +69,7 @@ const MESSAGES = {
   network: 'Cannot reach the server. Check your connection and press Publish again.',
 };
 
-export function createUploader(page, { onPublished, onDone, onClose }) {
+export function createUploader(page, { onPublished, onDone, onClose, onHome }) {
   const $ = (s) => page.querySelector(s);
   const dropzone = $('[data-dropzone]');
   const input = $('[data-file-input]');
@@ -115,7 +113,7 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
     if (name === 'edit') views.edit.scrollIntoView?.({ block: 'start' });
   }
 
-  let source = null; // { kind: 'pdf', doc, file } | { kind: 'images', files }
+  let source = null; // { doc, file }
   let sheets = []; // [{ w, h, thumb }]
   let panels = []; // [{ sheet, part, n, excluded }]
   let draftId = null;
@@ -134,7 +132,7 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
     draftId = null;
     form.reset();
     grid.replaceChildren();
-    preview.hidden = true;
+    showPreview(false);
     dropzone.hidden = false;
     say('');
     fail('');
@@ -143,6 +141,13 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
     abort = null;
     showView('edit');
     setBusy(false);
+  }
+
+  /** The preview (pages, details, Publish) replaces the dropzone; the page switches to its wide layout. */
+  function showPreview(on) {
+    preview.hidden = !on;
+    submit.hidden = !on;
+    page.classList.toggle('has-preview', on);
   }
 
   function setBusy(on) {
@@ -155,42 +160,29 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
 
   // --- Reading the files ------------------------------------------------------
   async function load(fileList) {
-    const files = [...fileList];
-    const pdf = files.find(isPdf);
-    const images = files.filter(isImage).sort((a, b) => natural.compare(a.name, b.name));
-    if (!pdf && !images.length) return say('Choose a PDF, or page images (PNG, JPG).');
+    const pdfs = [...fileList].filter(isPdf);
+    if (!pdfs.length) return say('Only PDF files can be added.');
+    if (pdfs.length > 1 || fileList.length > pdfs.length) return say('Add one PDF at a time.');
+    const pdf = pdfs[0];
     fail('');
     dropzone.hidden = true;
-    preview.hidden = true;
+    showPreview(false);
 
     try {
       sheets = [];
-      if (pdf) {
-        say('Opening the PDF…');
-        const doc = await openPdfFile(pdf);
-        if (doc.numPages > MAX_PAGES) throw new Error(`The PDF has ${doc.numPages} pages; up to ${MAX_PAGES} are allowed.`);
-        source = { kind: 'pdf', doc, file: pdf };
-        for (let i = 0; i < doc.numPages; i++) {
-          say(`Reading pages… ${i + 1}/${doc.numPages}`);
-          const { width, height } = await pageSize(doc, i);
-          sheets.push({ w: width, h: height, thumb: await renderPageTo(doc, i, THUMB_H * (width / height)) });
-        }
-      } else {
-        if (images.length > MAX_PAGES) throw new Error(`Up to ${MAX_PAGES} images are allowed.`);
-        source = { kind: 'images', files: images };
-        for (let i = 0; i < images.length; i++) {
-          say(`Reading pages… ${i + 1}/${images.length}`);
-          const bmp = await createImageBitmap(images[i]);
-          const thumb = canvasOf(THUMB_H * (bmp.width / bmp.height), THUMB_H);
-          thumb.getContext('2d').drawImage(bmp, 0, 0, thumb.width, thumb.height);
-          sheets.push({ w: bmp.width, h: bmp.height, thumb });
-          bmp.close?.();
-        }
+      say('Opening the PDF…');
+      const doc = await openPdfFile(pdf);
+      if (doc.numPages > MAX_PAGES) throw new Error(`The PDF has ${doc.numPages} pages; up to ${MAX_PAGES} are allowed.`);
+      source = { doc, file: pdf };
+      for (let i = 0; i < doc.numPages; i++) {
+        say(`Reading pages… ${i + 1}/${doc.numPages}`);
+        const { width, height } = await pageSize(doc, i);
+        sheets.push({ w: width, h: height, thumb: await renderPageTo(doc, i, THUMB_H * (width / height)) });
       }
     } catch (err) {
       console.error(err);
       reset();
-      return say(err.message?.startsWith('The PDF') || err.message?.startsWith('Up to') ? err.message : 'Could not read that file. Is it a valid PDF or image?');
+      return say(err.message?.startsWith('The PDF') ? err.message : 'Could not read that file. Is it a valid PDF?');
     }
 
     // Guess the layout from the first sheet; the person can change it below.
@@ -198,10 +190,10 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
     perSelect.value = String(guess);
     swapBox.checked = false;
     options.hidden = !sheets.some((s) => s.w / s.h > 1.2);
-    const name = (pdf || images[0]).name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
-    if (!form.elements.title.value) form.elements.title.value = pdf ? name : '';
+    const name = pdf.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+    if (!form.elements.title.value) form.elements.title.value = name;
     say('');
-    preview.hidden = false;
+    showPreview(true);
     rebuild();
   }
 
@@ -226,24 +218,17 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
       const w = s.thumb.width / p.n;
       const c = canvasOf(w, s.thumb.height);
       c.getContext('2d').drawImage(s.thumb, p.part * w, 0, w, s.thumb.height, 0, 0, c.width, c.height);
-      const b = document.createElement('button');
-      b.type = 'button';
+      const b = document.createElement('div');
       b.className = 'thumb-page';
-      b.setAttribute('aria-pressed', 'true');
-      b.title = 'Click to leave this page out';
       b.append(c);
       const num = document.createElement('span');
       b.append(num);
-      b.addEventListener('click', () => {
-        p.excluded = !p.excluded;
-        b.setAttribute('aria-pressed', !p.excluded);
-        updateNumbers();
-      });
       p.el = b;
       p.num = num;
       grid.append(b);
     });
     updateNumbers();
+    updateFades();
   }
 
   function updateNumbers() {
@@ -254,14 +239,60 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
     summary.textContent = `${sheetNote}${n} page${n === 1 ? '' : 's'}${out ? ` · ${out} left out` : ''}`;
   }
 
+  // The strip of pages scrolls sideways; a mouse wheel scrolls it too.
+  grid.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    grid.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+
+  /** Fades the edges of the strip that have more pages beyond them, a little more the further it is scrolled. */
+  const FADE = 56;
+  function updateFades() {
+    const left = Math.max(0, Math.min(FADE, grid.scrollLeft));
+    const right = Math.max(0, Math.min(FADE, grid.scrollWidth - grid.clientWidth - grid.scrollLeft));
+    grid.style.setProperty('--fade-l', `${left}px`);
+    grid.style.setProperty('--fade-r', `${right}px`);
+  }
+  grid.addEventListener('scroll', updateFades, { passive: true });
+  new ResizeObserver(updateFades).observe(grid);
+
   perSelect.addEventListener('change', rebuild);
   swapBox.addEventListener('change', rebuild);
 
   // --- Choosing files ---------------------------------------------------------------
   input.addEventListener('change', () => input.files.length && load(input.files));
-  ['dragenter', 'dragover'].forEach((t) => dropzone.addEventListener(t, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }));
-  ['dragleave', 'drop'].forEach((t) => dropzone.addEventListener(t, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
-  dropzone.addEventListener('drop', (e) => e.dataTransfer?.files.length && load(e.dataTransfer.files));
+
+  // A file can be dropped anywhere on the page, not only on the dropzone. The browser's own
+  // reaction to a stray drop (opening the PDF in this tab) is always cancelled.
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  const canDrop = () => !busy && !dropzone.hidden && page.dataset.view === 'edit';
+  let dragDepth = 0; // dragenter/dragleave also fire for every child element passed over
+  const endDrag = () => {
+    dragDepth = 0;
+    page.classList.remove('is-dragging');
+  };
+  page.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    if (canDrop()) page.classList.add('is-dragging');
+  });
+  page.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = canDrop() ? 'copy' : 'none';
+  });
+  page.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    if (--dragDepth <= 0) endDrag();
+  });
+  page.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    endDrag();
+    if (canDrop() && e.dataTransfer.files.length) load(e.dataTransfer.files);
+  });
 
   // --- Publishing ----------------------------------------------------------------------
   /** Draws one page (a crop of a sheet) onto an A5 canvas; odd shapes are fitted, not stretched. */
@@ -284,14 +315,7 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
   let cachedSheet = { index: -1, canvas: null };
   async function sheetCanvas(si, n) {
     if (cachedSheet.index === si) return cachedSheet.canvas;
-    let canvas;
-    if (source.kind === 'pdf') canvas = await renderPageTo(source.doc, si, PANEL_W * n);
-    else {
-      const bmp = await createImageBitmap(source.files[si]);
-      canvas = canvasOf(bmp.width, bmp.height);
-      canvas.getContext('2d', { alpha: false }).drawImage(bmp, 0, 0);
-      bmp.close?.();
-    }
+    const canvas = await renderPageTo(source.doc, si, PANEL_W * n);
     release(cachedSheet.canvas); // the previous sheet is no longer needed
     cachedSheet = { index: si, canvas };
     return canvas;
@@ -400,7 +424,7 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
     if (!chosen.length) return fail('Keep at least one page.');
     if (chosen.length > MAX_PAGES) return fail(`Up to ${MAX_PAGES} pages are allowed.`);
 
-    const withPdf = source.kind === 'pdf' && source.file.size <= MAX_PDF;
+    const withPdf = source.file.size <= MAX_PDF;
     cancelled = false;
     abort = new AbortController();
     const { signal } = abort;
@@ -531,6 +555,10 @@ export function createUploader(page, { onPublished, onDone, onClose }) {
     if (!busy) publish();
   });
   closeBtn.addEventListener('click', () => !busy && onClose());
+  // The wordmark takes the person back to the library, except while a publish is running or has failed.
+  $('[data-upload-home]').addEventListener('click', () => {
+    if (!busy && page.dataset.view !== 'failed') onHome();
+  });
 
   return {
     reset,

@@ -5,6 +5,9 @@ import { auth } from './auth.js';
 import { createUploader } from './upload.js';
 import { zip } from './zip.js';
 import { inviteLink, renderQr } from './invite.js';
+import { startAmbient } from './ambient.js';
+
+startAmbient();
 
 if (libraryError) {
   document.querySelector('[data-hint]').textContent = 'The library could not be loaded. Try again in a moment.';
@@ -1144,6 +1147,10 @@ function openProfile() {
 const uploadPage = $('[data-upload-page]');
 const uploader = createUploader(uploadPage, {
   onClose: () => closeUpload(),
+  onHome: () => {
+    closeUpload();
+    navigate(''); // the library, whatever shelf was open behind
+  },
   // The page stays on its "Published" screen; the library is brought up to date behind it.
   onPublished: async () => {
     await syncLibrary();
