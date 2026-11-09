@@ -201,6 +201,117 @@ async function invite(request, env) {
   return reply({ invite: env.INVITE_CODE }, 200, { 'cache-control': 'no-store' });
 }
 
+// --- study library (subjects → sections → entries) ---------------------------------
+// Everyone signed in can read and add; the person who added a thing (or an admin) can change or remove it.
+
+/** The whole library, nested, with what this person may edit. It is small, so every change returns it whole. */
+async function libraryPayload(env, user) {
+  const [subjects, sections, items] = await Promise.all([
+    env.DB.prepare('SELECT id, name, owner_id FROM lib_subjects WHERE deleted_at IS NULL ORDER BY position, created_at').all(),
+    env.DB.prepare('SELECT id, subject_id, name, owner_id FROM lib_sections WHERE deleted_at IS NULL ORDER BY position, created_at').all(),
+    env.DB.prepare(
+      `SELECT i.id, i.section_id, i.title, i.note, i.url, i.planned, i.owner_id, u.display_name
+         FROM lib_items i JOIN users u ON u.id = i.owner_id
+        WHERE i.deleted_at IS NULL ORDER BY i.position, i.created_at`,
+    ).all(),
+  ]);
+  const admin = isAdmin(env, user);
+  const can = (ownerId) => admin || ownerId === user.id;
+  const bySubject = new Map(subjects.results.map((r) => [r.id, { id: r.id, name: r.name, canEdit: can(r.owner_id), sections: [] }]));
+  const bySection = new Map();
+  for (const r of sections.results) {
+    const subject = bySubject.get(r.subject_id);
+    if (!subject) continue; // its subject was removed
+    const section = { id: r.id, name: r.name, canEdit: can(r.owner_id), items: [] };
+    subject.sections.push(section);
+    bySection.set(r.id, section);
+  }
+  for (const r of items.results) {
+    bySection.get(r.section_id)?.items.push({
+      id: r.id, title: r.title, note: r.note, url: r.url, planned: !!r.planned, by: r.display_name, canEdit: can(r.owner_id),
+    });
+  }
+  return { subjects: [...bySubject.values()] };
+}
+
+async function materials(request, env) {
+  const user = await requireUser(request, env);
+  return reply(await libraryPayload(env, user), 200, { 'cache-control': 'no-store' });
+}
+
+function libName(v, max = 60) {
+  const name = cleanName(v);
+  if (name.length < 1 || name.length > max) throw new HttpError(400, 'bad_name');
+  return name;
+}
+
+/** An optional link: http(s) only; "example.com/x" is read as https. */
+function libUrl(v) {
+  const raw = String(v ?? '').trim();
+  if (!raw) return null;
+  if (raw.length > 500) throw new HttpError(400, 'bad_url');
+  let url;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    throw new HttpError(400, 'bad_url');
+  }
+  if (!/^https?:$/.test(url.protocol) || !url.hostname.includes('.')) throw new HttpError(400, 'bad_url');
+  return url.href;
+}
+
+const LIB_TABLES = { subjects: 'lib_subjects', sections: 'lib_sections', items: 'lib_items' };
+
+/** A row that exists, and that this person may change. */
+async function libRow(env, user, kind, id) {
+  const row = await env.DB.prepare(`SELECT * FROM ${LIB_TABLES[kind]} WHERE id = ? AND deleted_at IS NULL`).bind(id).first();
+  if (!row) throw new HttpError(404, 'not_found');
+  if (row.owner_id !== user.id && !isAdmin(env, user)) throw new HttpError(403, 'not_yours');
+  return row;
+}
+
+async function libAdd(request, env, kind) {
+  const user = await requireUser(request, env);
+  const b = await body(request);
+  const id = randomHex(8);
+  if (kind === 'subjects') {
+    await env.DB.prepare('INSERT INTO lib_subjects (id, name, owner_id, position) VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM lib_subjects))')
+      .bind(id, libName(b.name), user.id).run();
+  } else if (kind === 'sections') {
+    if (!(await env.DB.prepare('SELECT 1 FROM lib_subjects WHERE id = ? AND deleted_at IS NULL').bind(String(b.subjectId)).first())) throw new HttpError(404, 'not_found');
+    await env.DB.prepare('INSERT INTO lib_sections (id, subject_id, name, owner_id, position) VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM lib_sections WHERE subject_id = ?))')
+      .bind(id, b.subjectId, libName(b.name), user.id, b.subjectId).run();
+  } else {
+    if (!(await env.DB.prepare('SELECT 1 FROM lib_sections WHERE id = ? AND deleted_at IS NULL').bind(String(b.sectionId)).first())) throw new HttpError(404, 'not_found');
+    await env.DB.prepare('INSERT INTO lib_items (id, section_id, title, note, url, planned, owner_id, position) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM lib_items WHERE section_id = ?))')
+      .bind(id, b.sectionId, libName(b.title, 140), cleanName(b.note).slice(0, 200), libUrl(b.url), b.planned ? 1 : 0, user.id, b.sectionId).run();
+  }
+  await audit(env, user.id, `library-add-${kind}`);
+  return reply(await libraryPayload(env, user), 201);
+}
+
+async function libEdit(request, env, kind, id) {
+  const user = await requireUser(request, env);
+  await libRow(env, user, kind, id);
+  const b = await body(request);
+  if (kind === 'items') {
+    await env.DB.prepare('UPDATE lib_items SET title = ?, note = ?, url = ?, planned = ? WHERE id = ?')
+      .bind(libName(b.title, 140), cleanName(b.note).slice(0, 200), libUrl(b.url), b.planned ? 1 : 0, id).run();
+  } else {
+    await env.DB.prepare(`UPDATE ${LIB_TABLES[kind]} SET name = ? WHERE id = ?`).bind(libName(b.name), id).run();
+  }
+  await audit(env, user.id, `library-edit-${kind}`);
+  return reply(await libraryPayload(env, user));
+}
+
+async function libRemove(request, env, kind, id) {
+  const user = await requireUser(request, env);
+  await libRow(env, user, kind, id);
+  await env.DB.prepare(`UPDATE ${LIB_TABLES[kind]} SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`).bind(id).run();
+  await audit(env, user.id, `library-remove-${kind}`);
+  return reply(await libraryPayload(env, user));
+}
+
 // --- books ------------------------------------------------------------------
 async function ownBook(env, user, id, { allowAdmin = false } = {}) {
   const book = await env.DB.prepare('SELECT * FROM books WHERE id = ? AND deleted_at IS NULL').bind(id).first();
@@ -315,6 +426,10 @@ async function route(request, env) {
   }
   if (get && pathname === '/api/people') return people(request, env);
   if (get && pathname === '/api/invite') return invite(request, env);
+  if (get && pathname === '/api/materials') return materials(request, env);
+  if (post && (r = m(/^\/api\/materials\/(subjects|sections|items)$/))) return libAdd(request, env, r[1]);
+  if (request.method === 'PATCH' && (r = m(/^\/api\/materials\/(subjects|sections|items)\/([a-f0-9]{16})$/))) return libEdit(request, env, r[1], r[2]);
+  if (request.method === 'DELETE' && (r = m(/^\/api\/materials\/(subjects|sections|items)\/([a-f0-9]{16})$/))) return libRemove(request, env, r[1], r[2]);
   if (post && pathname === '/api/register') return register(request, env);
   if (post && pathname === '/api/login') return login(request, env);
   if (post && pathname === '/api/logout') return logout(request, env);

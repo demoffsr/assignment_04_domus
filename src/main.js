@@ -3,6 +3,7 @@ import { books, libraryError, fetchBooks, createPicture, hydrate } from './image
 import { createBook } from './book.js';
 import { auth } from './auth.js';
 import { createUploader } from './upload.js';
+import { createLibrary } from './materials.js';
 import { zip } from './zip.js';
 import { inviteLink, renderQr } from './invite.js';
 import { startAmbient } from './ambient.js';
@@ -548,7 +549,7 @@ function askDelete(list) {
 $$('[data-act]', cardMenu).forEach((b) => b.addEventListener('click', () => act(menuEntry, b.dataset.act)));
 $$('[data-act]', bookActions).forEach((b) => b.addEventListener('click', () => act(openEntry(), b.dataset.act)));
 $$('[data-dialog-cancel]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
-[renameDialog, deleteDialog, $('#invite-dialog')].forEach((d) => d.addEventListener('click', (e) => e.target === d && d.close())); // the backdrop
+[renameDialog, deleteDialog, $('#invite-dialog'), $('#lib-item-dialog'), $('#lib-name-dialog')].forEach((d) => d.addEventListener('click', (e) => e.target === d && d.close())); // the backdrop
 document.addEventListener('click', (e) => menuEntry && !e.target.closest('.card-menu, .card-dots') && closeCardMenu());
 shelfEl.addEventListener('scroll', closeCardMenu, { passive: true });
 
@@ -686,6 +687,9 @@ peopleNav.innerHTML = `
       <button type="button" data-f="mine">Mine <span class="count"></span></button>
       <button type="button" data-f="person" aria-haspopup="listbox" aria-expanded="false"><span class="f-label">People</span>${CHEVRON}</button>
     </div>
+    <div class="filter-seg" role="group" aria-label="Study library">
+      <button type="button" data-f="library">Library</button>
+    </div>
     <div class="people-menu" hidden>
       <input type="search" class="people-search" placeholder="Search people" aria-label="Search people" autocomplete="off" spellcheck="false" />
       <div class="people-list" role="listbox" aria-label="People"></div>
@@ -775,6 +779,7 @@ fMine.addEventListener('click', () => {
   if (me) navigate(`u/${me.slug}`);
 });
 fPerson.addEventListener('click', () => (menuIsOpen() ? closePeopleMenu() : openPeopleMenu()));
+$('[data-f="library"]', peopleNav).addEventListener('click', () => navigate('library'));
 peopleSearch.addEventListener('input', filterPeopleList);
 peopleSearch.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') visibleRows()[0]?.click();
@@ -820,6 +825,7 @@ function parseHash() {
   const raw = location.hash.slice(1);
   if (!raw) return null;
   const parts = raw.split('/');
+  if (raw === 'library') return { library: true };
   if (parts[0] === 'u' && parts[1]) return { person: decodeURIComponent(parts[1]) };
   // Books are found by id, or by the slug of their title (old links: #deliberation/unfolded).
   let entry = entries.find((x) => x.id === parts[0] || slugOf(x.data.title) === parts[0]);
@@ -895,6 +901,8 @@ function applyRoute() {
   lastHash = location.hash;
   const token = ++routeToken;
   const route = parseHash();
+  syncLibraryPage(route);
+  if (route?.library) return;
   if (route?.entry) return openBook(route);
   setFilter(route?.person ?? null);
   loadPeople();
@@ -923,10 +931,11 @@ modeButtons.forEach((b) => b.addEventListener('click', () => active && !active.e
 addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open]')) return; // a dialog handles Escape itself
   if (e.key === 'Escape' && menuEntry) return closeCardMenu();
-  if (e.key === 'Escape' && selected.size && !profileOpen() && !uploadOpen()) return clearSelection();
+  if (e.key === 'Escape' && selected.size && !profileOpen() && !uploadOpen() && !libraryOpen()) return clearSelection();
   if (e.key === 'Escape' && menuIsOpen()) return closePeopleMenu();
   if (e.key === 'Escape' && profileOpen()) return closeProfile();
   if (e.key === 'Escape' && uploadOpen()) return uploader.busy || closeUpload();
+  if (e.key === 'Escape' && libraryOpen()) return navigate('');
   if (!active || active.zoomOpen || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.closest('input, textarea, select')) return;
   if (e.key === 'Escape' && settingsPanel.hidden) {
@@ -987,7 +996,8 @@ const nameMessage = $('[data-name-message]');
 const usernameMessage = $('[data-username-message]');
 const profileOpen = () => document.documentElement.classList.contains('profile-open');
 const uploadOpen = () => document.documentElement.classList.contains('upload-open');
-const overlayOpen = () => profileOpen() || uploadOpen();
+const libraryOpen = () => document.documentElement.classList.contains('library-open');
+const overlayOpen = () => profileOpen() || uploadOpen() || libraryOpen();
 let creating = false;
 
 // An invite link (?invite=CODE) brings the code with it: it fills the form and hides the field.
@@ -1182,6 +1192,24 @@ function closeUpload() {
 
 $('[data-upload-open]').addEventListener('click', openUpload);
 
+// --- The study library: a full page at #library --------------------------------------------
+const libraryPage = $('[data-lib-page]');
+const studyLibrary = createLibrary(libraryPage, { toast, onHome: () => navigate('') });
+
+/** Shows the page while the address is #library (and someone is signed in); hides it otherwise. */
+function syncLibraryPage(route = parseHash()) {
+  const wanted = !!route?.library && !!auth.user;
+  if (wanted === libraryOpen()) return;
+  document.documentElement.classList.toggle('library-open', wanted);
+  appShell.forEach((el) => (el.inert = !auth.user || overlayOpen()));
+  if (wanted) {
+    closePeopleMenu();
+    closeAccountMenu();
+    studyLibrary.open();
+  }
+  document.activeElement?.blur();
+}
+
 function closeProfile() {
   document.documentElement.classList.remove('profile-open');
   usernameForm.reset();
@@ -1272,8 +1300,10 @@ setAuthMode(!!linkInvite); // a link is for newcomers
 auth.onChange(renderAccount);
 auth.onChange(() => {
   refreshActions();
+  syncLibraryPage();
   if (auth.user) loadPeople(true);
   else {
+    studyLibrary.clear();
     inviteUrl = ''; // the code is for members only
     inviteDialog.close();
     people = [];

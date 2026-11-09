@@ -549,15 +549,15 @@ body.selecting .toast { bottom: 92px; }
 .chip-danger:hover { box-shadow: none; opacity: 0.9; }
 
 /* ── Sign-in page ────────────────────────────────────────── */
-.auth-page, .profile-page, .upload-page {
+.auth-page, .profile-page, .upload-page, .lib-page {
   position: fixed; inset: 0; z-index: 40;
   display: none; flex-direction: column; align-items: center;
   padding: 64px 24px 32px;
   overflow-y: auto;
 }
 /* These pages are see-through so the moving glow shows; the site behind them is hidden instead of covered. */
-:is(html.signed-out, html.profile-open, html.upload-open) body > :not(.ambient, .ambient-gl, .auth-page, .profile-page, .upload-page, .toast, dialog, template, script) { opacity: 0; visibility: hidden; }
-html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page { display: flex; }
+:is(html.signed-out, html.profile-open, html.upload-open, html.library-open) body > :not(.ambient, .ambient-gl, .auth-page, .profile-page, .upload-page, .lib-page, .toast, dialog, template, script) { opacity: 0; visibility: hidden; }
+html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page, html.library-open .lib-page { display: flex; }
 .auth-brand {
   position: absolute; top: 24px; left: clamp(16px, 3vw, 32px);
   margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.015em; line-height: 1;
@@ -810,6 +810,76 @@ body[data-view='book'] .add-btn { display: none; }
   .view, .thumb, .modes button { transition-duration: 0.01s; }
 }
 
+/* ── Study library ───────────────────────────────────────── */
+.people-wrap { display: flex; align-items: center; gap: 8px; }
+.people-wrap > .filter-seg:last-of-type { flex: none; }
+.lib-page { padding-top: 72px; }
+.lib-card { width: min(1120px, 100%); margin: 0 auto; }
+.lib-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px 40px; flex-wrap: wrap; margin-bottom: 22px; }
+.lib-head h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.lib-lead { margin: 0; max-width: 520px; font-size: 14px; }
+.lib-search {
+  font: inherit; font-size: 14px; color: var(--fg); width: 280px; max-width: 100%; height: 40px; padding: 0 14px;
+  border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px var(--faint);
+}
+.lib-search::placeholder { color: var(--dim); }
+.lib-search:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--blue); }
+.lib-search::-webkit-search-cancel-button { display: none; }
+
+.lib-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lib-tab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 15px; border-radius: 999px; color: var(--dim);
+  box-shadow: inset 0 0 0 1px var(--faint); transition: color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+.lib-tab:hover { color: var(--fg); }
+.lib-tab[aria-pressed='true'] { color: var(--fg); background: rgba(255, 255, 255, 0.1); box-shadow: none; }
+.lib-tab--add { box-shadow: inset 0 0 0 1px var(--faint); }
+.lib-tab-edit { width: 30px; height: 30px; }
+
+.lib-body { margin-top: 24px; }
+.lib-cols { columns: 300px 3; column-gap: 18px; }
+.lib-section {
+  break-inside: avoid; margin: 0 0 18px; padding: 14px 18px 8px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035); box-shadow: inset 0 0 0 1px var(--faint);
+}
+.lib-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
+.lib-section-head h2 { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.005em; }
+.lib-section-actions { display: flex; gap: 2px; margin-right: -6px; }
+.lib-section-from { margin: 0 0 2px; font-size: 12px; }
+.lib-list { margin: 6px 0 0; padding: 0; list-style: none; }
+.lib-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 9px 0; border-top: 1px solid rgba(255, 255, 255, 0.07); }
+.lib-item:first-child { border-top: 0; }
+.lib-item-text { min-width: 0; }
+.lib-item-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.lib-item-title { font-size: 14px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+a.lib-item-title { text-decoration: none; transition: color 0.2s; }
+a.lib-item-title:hover { color: #9fb5ff; }
+.lib-arrow { margin-left: 4px; opacity: 0.55; vertical-align: -1px; }
+.lib-planned { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; color: var(--dim); box-shadow: inset 0 0 0 1px var(--faint); }
+.lib-item-note { margin-top: 2px; font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.lib-icon { flex: none; width: 28px; height: 28px; }
+.lib-item .lib-icon { margin: -3px -6px 0 0; opacity: 0; transition: opacity 0.2s, color 0.2s, background-color 0.2s; }
+.lib-item:hover .lib-icon, .lib-item .lib-icon:focus-visible { opacity: 1; }
+@media (hover: none) { .lib-item .lib-icon { opacity: 0.7; } }
+.lib-section-empty { display: block; width: 100%; padding: 10px 0 12px; text-align: left; font-size: 13px; }
+.lib-section-empty:hover { color: var(--fg); }
+.lib-add-section {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 22px 18px; margin-bottom: 18px;
+  break-inside: avoid; border-radius: 14px; color: var(--dim); box-shadow: inset 0 0 0 1.5px var(--faint); transition: color 0.2s, box-shadow 0.2s;
+}
+.lib-add-section:hover { color: var(--fg); box-shadow: inset 0 0 0 1.5px rgba(242, 242, 242, 0.4); }
+.lib-message { display: grid; justify-items: center; gap: 14px; padding: 56px 0; text-align: center; }
+.lib-message p { margin: 0; }
+.lib-dialog { width: min(440px, calc(100vw - 32px)); }
+.dialog label.check { display: flex; align-items: center; gap: 10px; font-weight: 400; }
+.dialog input[type='checkbox'] { width: 18px; height: 18px; padding: 0; accent-color: var(--blue); }
+.lib-delete { margin-right: auto; }
+@media (max-width: 700px) {
+  .lib-page { padding-top: 64px; }
+  .lib-search { width: 100%; }
+  .people-wrap { flex-wrap: wrap; justify-content: center; }
+}
+
 /* ── Opening and closing ─────────────────────────────────────
    Pop-ups, menus and full pages fade and rise in, and fade out when they close. Only opacity and
    transform move. The closing part relies on `display` being animatable (@starting-style and
@@ -819,13 +889,13 @@ body[data-view='book'] .add-btn { display: none; }
 .top, .stage, .bottom, .selbar { transition: opacity 0.28s var(--out), visibility 0.28s; }
 
 /* Full pages: sign in, profile, add a leporello */
-.auth-page, .profile-page, .upload-page { opacity: 0; transition: opacity 0.28s var(--out), display 0.28s allow-discrete; }
-html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page { opacity: 1; }
-.auth-card, .upload-card { transform: translateY(14px); transition: transform 0.4s var(--out); }
-html.signed-out .auth-card, html.profile-open .auth-card, html.upload-open .upload-card { transform: none; }
+.auth-page, .profile-page, .upload-page, .lib-page { opacity: 0; transition: opacity 0.28s var(--out), display 0.28s allow-discrete; }
+html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page, html.library-open .lib-page { opacity: 1; }
+.auth-card, .upload-card, .lib-card { transform: translateY(14px); transition: transform 0.4s var(--out); }
+html.signed-out .auth-card, html.profile-open .auth-card, html.upload-open .upload-card, html.library-open .lib-card { transform: none; }
 @starting-style {
-  html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page { opacity: 0; }
-  html.signed-out .auth-card, html.profile-open .auth-card, html.upload-open .upload-card { transform: translateY(14px); }
+  html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .upload-page, html.library-open .lib-page { opacity: 0; }
+  html.signed-out .auth-card, html.profile-open .auth-card, html.upload-open .upload-card, html.library-open .lib-card { transform: translateY(14px); }
 }
 
 /* Dialogs (invite, rename, delete) and their dimmed backdrop */
@@ -855,7 +925,7 @@ html.signed-out .auth-card, html.profile-open .auth-card, html.upload-open .uplo
 @keyframes rise-in { from { opacity: 0; transform: translateY(12px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-page, .profile-page, .upload-page, .auth-card, .upload-card, .dialog, .dialog::backdrop,
+  .auth-page, .profile-page, .upload-page, .lib-page, .auth-card, .upload-card, .lib-card, .dialog, .dialog::backdrop,
   .settings-panel, .card-menu, .people-menu, .top, .stage, .bottom, .selbar { transition-duration: 0.01s; }
   .upload-state, [data-upload-preview] { animation: none; }
 }

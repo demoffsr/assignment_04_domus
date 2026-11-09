@@ -196,6 +196,43 @@
       </form>
     </dialog>
 
+    <dialog class="dialog lib-dialog" id="lib-item-dialog" aria-labelledby="lib-item-title" autofocus tabindex="-1">
+      <form id="lib-item-form" novalidate>
+        <h2 id="lib-item-title">Add an entry</h2>
+        <label>Title
+          <input name="title" maxlength="140" autocomplete="off" placeholder="Author – Title, or a name" required />
+        </label>
+        <label>Note
+          <input name="note" maxlength="200" autocomplete="off" placeholder="Year, publisher, who they are (optional)" />
+        </label>
+        <label>Link
+          <input name="url" maxlength="500" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://… (optional)" />
+        </label>
+        <label class="check"><input type="checkbox" name="planned" /> On the reading plan</label>
+        <p class="auth-error" role="alert" data-lib-item-error></p>
+        <div class="dialog-actions">
+          <button type="button" class="chip chip-link lib-delete" data-lib-item-delete hidden>Delete</button>
+          <button type="button" class="chip chip-link" data-dialog-cancel>Cancel</button>
+          <button type="submit" class="chip chip-solid" data-lib-item-submit>Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="dialog lib-dialog" id="lib-name-dialog" aria-labelledby="lib-name-title" autofocus tabindex="-1">
+      <form id="lib-name-form" novalidate>
+        <h2 id="lib-name-title">New subject</h2>
+        <label>Name
+          <input name="name" maxlength="60" autocomplete="off" required />
+        </label>
+        <p class="auth-error" role="alert" data-lib-name-error></p>
+        <div class="dialog-actions">
+          <button type="button" class="chip chip-link lib-delete" data-lib-name-delete hidden>Delete</button>
+          <button type="button" class="chip chip-link" data-dialog-cancel>Cancel</button>
+          <button type="submit" class="chip chip-solid" data-lib-name-submit>Save</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog class="dialog invite-dialog" id="invite-dialog" aria-labelledby="invite-title" autofocus tabindex="-1">
       <button type="button" class="icon-btn dialog-x" data-dialog-cancel aria-label="Close" title="Close">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -231,6 +268,21 @@
     </div>
 
     <div class="toast" role="status" aria-live="polite" data-toast><span class="toast-icon" aria-hidden="true"></span><span class="toast-text"></span></div>
+
+    <section class="lib-page" data-lib-page aria-labelledby="lib-title">
+      <button type="button" class="auth-brand auth-brand--home" data-lib-home aria-label="Tubus: back to the library">Tubus</button>
+      <div class="lib-card">
+        <div class="lib-head">
+          <div>
+            <h1 id="lib-title">Library</h1>
+            <p class="dim lib-lead">Course reading, designers and references, shared by everyone in the group.</p>
+          </div>
+          <input type="search" class="lib-search" placeholder="Search everything" aria-label="Search the library" autocomplete="off" spellcheck="false" data-lib-search />
+        </div>
+        <div class="lib-tabs" role="group" aria-label="Subject" data-lib-tabs></div>
+        <div class="lib-body" data-lib-body></div>
+      </div>
+    </section>
 
     <section class="upload-page" data-upload-page aria-labelledby="upload-title">
       <button type="button" class="auth-brand auth-brand--home" data-upload-home aria-label="Tubus: back to the library">Tubus</button>
