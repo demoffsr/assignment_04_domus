@@ -578,6 +578,14 @@ html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .u
 .auth-card form { display: grid; }
 .auth-card label { display: grid; gap: 6px; margin-bottom: 16px; font-size: 13px; font-weight: 500; }
 .auth-card label small { font-size: 12px; font-weight: 400; }
+.auth-warn {
+  display: flex; align-items: flex-start; gap: 10px; margin: 0 0 18px; padding: 11px 14px; border-radius: 10px;
+  font-size: 13px; line-height: 1.4; color: #ffd08a; background: rgba(255, 183, 77, 0.09); box-shadow: inset 0 0 0 1px rgba(255, 183, 77, 0.28);
+}
+.auth-warn svg { flex: none; margin-top: 1px; }
+.auth-warn span { display: grid; gap: 2px; }
+.auth-warn strong { font-weight: 600; color: #ffd08a; }
+.auth-warn em { font-style: normal; color: rgba(255, 224, 178, 0.82); }
 .auth-card input {
   font: inherit; font-size: 15px; font-weight: 400; color: var(--fg);
   height: 44px; padding: 0 14px; border: 0; border-radius: 10px;
@@ -616,6 +624,8 @@ html.signed-out .auth-page, html.profile-open .profile-page, html.upload-open .u
 .chip:hover { box-shadow: inset 0 0 0 1px var(--fg); }
 .chip-solid { background: var(--fg); color: #000; font-weight: 600; box-shadow: none; }
 .chip-solid:hover { box-shadow: none; opacity: 0.88; }
+.invite-dialog [data-invite-copy] { min-width: 88px; } /* "Copied" fits without the row shifting */
+.chip-solid.is-copied { background: #5fd47e; color: #04210e; }
 .chip-link { box-shadow: none; color: var(--dim); }
 .chip-link:hover { box-shadow: none; color: var(--fg); }
 #username-form { margin-top: 16px; }
@@ -650,6 +660,20 @@ body[data-view='book'] .add-btn { display: none; }
 .upload-page.is-dragging::after { opacity: 1; }
 .upload-page.is-dragging label.dropzone { background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1.5px var(--blue); }
 .upload-status { min-height: 1.35em; margin: 12px 0; font-size: 13px; }
+/* Which PDFs fit: a lone A5 page, or an A4 landscape sheet that holds two; sits at the right of the heading */
+.upload-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px 48px; margin-bottom: 24px; }
+.upload-head h1 { margin: 0 0 8px; }
+.upload-head .upload-lead { max-width: 500px; margin: 0; }
+.upload-formats { display: flex; align-items: flex-end; gap: 28px; flex: none; }
+.upload-formats figure { display: grid; justify-items: center; gap: 8px; margin: 0; }
+.upload-formats svg { display: block; height: 62px; width: auto; overflow: visible; }
+.upload-formats .sheet { fill: rgba(255, 255, 255, 0.045); stroke: rgba(242, 242, 242, 0.3); }
+.upload-formats .ink { fill: rgba(242, 242, 242, 0.2); }
+.upload-formats .cut { stroke: var(--blue); stroke-width: 1.5; stroke-dasharray: 3 3.5; stroke-linecap: round; }
+.upload-formats figcaption { font-size: 11px; font-weight: 500; white-space: nowrap; }
+.upload-formats figcaption span { color: var(--dim); font-weight: 400; }
+.upload-page.has-preview .upload-formats { display: none; }
+@media (max-width: 760px) { .upload-head { flex-direction: column; align-items: flex-start; } .upload-formats { margin: 0; } }
 .upload-card .profile-back { width: auto; padding-left: 0; text-align: left; }
 .upload-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; }
 .upload-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }

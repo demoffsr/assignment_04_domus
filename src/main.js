@@ -1025,7 +1025,7 @@ function setAuthMode(createAccount) {
   $('[data-username-hint]').textContent = creating
     ? 'Private, never shown. 3–24 characters: a–z, 0–9, dot, dash, underscore.'
     : 'The one you chose when you signed up.';
-  $('[data-register-only]').hidden = !creating;
+  $$('[data-register-only]').forEach((el) => (el.hidden = !creating));
   $$('[data-auth-tab]').forEach((b) => b.setAttribute('aria-pressed', (b.dataset.authTab === 'register') === creating));
   authError.textContent = '';
 }
@@ -1104,6 +1104,7 @@ $('[data-invite-open]').addEventListener('click', async () => {
   inviteError.textContent = '';
   clearTimeout(inviteCopyTimer);
   inviteCopy.textContent = 'Copy';
+  inviteCopy.classList.remove('is-copied');
   if (!inviteUrl) {
     try {
       inviteUrl = inviteLink(await auth.invite());
@@ -1127,9 +1128,13 @@ inviteCopy.addEventListener('click', async () => {
     inviteError.textContent = 'Could not copy automatically. The link is selected: copy it by hand.';
     return;
   }
-  inviteCopy.textContent = 'Copied ✓';
+  inviteCopy.textContent = 'Copied';
+  inviteCopy.classList.add('is-copied');
   clearTimeout(inviteCopyTimer);
-  inviteCopyTimer = setTimeout(() => (inviteCopy.textContent = 'Copy'), 2000);
+  inviteCopyTimer = setTimeout(() => {
+    inviteCopy.textContent = 'Copy';
+    inviteCopy.classList.remove('is-copied');
+  }, 2000);
 });
 
 function openProfile() {
