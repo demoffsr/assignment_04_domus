@@ -2,7 +2,8 @@
 // a PDF is read, A4-landscape sheets are cut into A5 pages,
 // the person previews the result, and only then are the pages encoded and sent.
 import { auth } from './auth.js';
-import { openPdfFile, pageSize, renderPageTo } from './pdf.js';
+import { openPdfFile, pageLinks, pageSize, renderPageTo } from './pdf.js';
+import { cropLinks } from './links.js';
 
 const ASPECT = 148 / 210; // A5 portrait, the shape every page is shown in
 const PANEL_W = 1680; // widest variant, as in the existing books
@@ -177,7 +178,9 @@ export function createUploader(page, { onPublished, onDone, onClose, onHome }) {
       for (let i = 0; i < doc.numPages; i++) {
         say(`Reading pages… ${i + 1}/${doc.numPages}`);
         const { width, height } = await pageSize(doc, i);
-        sheets.push({ w: width, h: height, thumb: await renderPageTo(doc, i, THUMB_H * (width / height)) });
+        // The links in the PDF travel with the pages; a PDF whose links cannot be read still uploads.
+        const links = await pageLinks(doc, i).catch(() => []);
+        sheets.push({ w: width, h: height, links, thumb: await renderPageTo(doc, i, THUMB_H * (width / height)) });
       }
     } catch (err) {
       console.error(err);
@@ -473,7 +476,10 @@ export function createUploader(page, { onPublished, onDone, onClose, onHome }) {
 
         const list = files.map((f) => ({ w: f.w, src: `u/${id}/${f.name}` }));
         const same = files[0].ext === 'webp';
+        const sheet = sheets[p.sheet];
+        const links = cropLinks(sheet.links, p.part, p.n, sheet.w, sheet.h, ASPECT);
         pages.push({
+          ...(links.length && { links }),
           width: PANEL_W,
           height: PANEL_H,
           // WebP where the browser could make it. Otherwise the files are JPEG (or PNG); they sit in the

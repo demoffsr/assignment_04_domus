@@ -196,6 +196,15 @@ body.booting .book, body.booting .shelf, body.booting .shelf-fade, body.booting 
 .face img.loaded { opacity: 1; }
 .shade { position: absolute; inset: 0; pointer-events: none; }
 .shade { background: #000; opacity: 0; }
+/* Links from the PDF: invisible zones over the page, clickable on the focused page and in the zoom. */
+.plinks, .zoom-links { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.plink {
+  position: absolute; display: block; border-radius: 3px;
+  pointer-events: auto; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  background: rgba(70, 130, 255, 0); transition: background-color 0.15s ease;
+}
+.plink:hover, .plink:focus-visible { background: rgba(70, 130, 255, 0.18); outline: none; }
+.plinks[inert] .plink { pointer-events: none; }
 /* Fold lines. Each edge has a valley (shadow) and a ridge (light catching the
    crease). Opacity is driven from JS by the fold angle. The right edge is
    mirrored, so both gradients are written from the edge inwards. */

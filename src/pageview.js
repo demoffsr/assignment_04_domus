@@ -25,6 +25,7 @@ export function createPageView(root, pages, { reducedMotion, onChange, onOpen })
   let w = 0, h = 0;
   let cancel = null;
   let reported = -1;
+  let linksOn = -1; // the page whose links can be clicked
   let started = false; // don't report a page until the app has asked for one
 
   function measure() {
@@ -64,6 +65,11 @@ export function createPageView(root, pages, { reducedMotion, onChange, onOpen })
     });
 
     const idx = Math.round(f);
+    if (idx !== linksOn) {
+      panels[linksOn]?.setLinksActive(false);
+      panels[idx]?.setLinksActive(true);
+      linksOn = idx;
+    }
     for (let i = idx - 2; i <= idx + 2; i++) panels[i] && hydrate(panels[i].pic, i === idx ? 'high' : 'low');
     if (started && idx !== reported) {
       reported = idx;
@@ -129,6 +135,7 @@ export function createPageView(root, pages, { reducedMotion, onChange, onOpen })
     root.classList.remove('dragging');
     if (!d.moved) {
       // Plain click/tap: open zoom on the focused page, or go to a neighbour.
+      if (e.target.closest('.plink')) return; // a link on the page opens by itself
       const el = e.target.closest('.panel');
       if (!el) return;
       const i = +el.dataset.index;

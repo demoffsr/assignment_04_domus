@@ -1,4 +1,5 @@
 import { clamp } from './panel.js';
+import { createLinkLayer } from './links.js';
 
 /**
  * Full-screen zoom. Shows the already-loaded image instantly, then swaps in
@@ -103,6 +104,8 @@ export function createZoom(root, pages, { vector, renderVector, onNavigate }) {
     img.onload = () => img.classList.add('loaded');
     img.src = page.original;
     frame.append(img);
+    const links = createLinkLayer(page.links, 'zoom-links');
+    if (links) frame.append(links);
     layout();
   }
 
@@ -131,12 +134,15 @@ export function createZoom(root, pages, { vector, renderVector, onNavigate }) {
   }, { passive: false });
 
   canvas.addEventListener('dblclick', (e) => {
+    if (e.target.closest('.plink')) return;
     const [cx, cy] = local(e);
     zoomAt(s > 1.01 ? 1 : maxScale(), cx, cy);
   });
 
   canvas.addEventListener('pointerdown', (e) => {
-    canvas.setPointerCapture(e.pointerId);
+    // Pressing on a link must not capture the pointer, or the click would never reach the link.
+    // Capture starts once the finger or mouse actually moves (see pointermove).
+    if (!e.target.closest('.plink')) canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, local(e));
     frame.classList.add('moving');
     if (pointers.size === 2) {
@@ -161,7 +167,10 @@ export function createZoom(root, pages, { vector, renderVector, onNavigate }) {
       apply();
     } else if (pointers.size === 1 && gesture && 'px' in gesture) {
       const dx = e.clientX - gesture.px, dy = e.clientY - gesture.py;
-      if (Math.abs(dx) + Math.abs(dy) > 4) gesture.moved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 4) {
+        gesture.moved = true;
+        if (!canvas.hasPointerCapture(e.pointerId)) canvas.setPointerCapture(e.pointerId);
+      }
       if (s > 1.01) { x = gesture.x + dx; y = gesture.y + dy; apply(); }
     }
   });

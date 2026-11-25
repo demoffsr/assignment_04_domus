@@ -350,6 +350,14 @@ function cleanPages(pages, prefix) {
     return k;
   };
   const list = (l) => (Array.isArray(l) ? l.map((v) => ({ w: int(v?.w) ?? (() => { throw new HttpError(400, 'bad_variant'); })(), src: key(v?.src) })) : []);
+  const frac = (v) => (Number.isFinite(v) ? Math.round(Math.min(1, Math.max(0, v)) * 1e4) / 1e4 : 0);
+  // Links over a page: only web and mail addresses, never anything a click could run.
+  const links = (l) => (Array.isArray(l) ? l.slice(0, 60).flatMap((v) => {
+    let ok = typeof v?.url === 'string' && v.url.length <= 2000;
+    try { ok &&= ['http:', 'https:', 'mailto:'].includes(new URL(v.url).protocol); } catch { ok = false; }
+    const box = { x: frac(v?.x), y: frac(v?.y), w: frac(v?.w), h: frac(v?.h) };
+    return ok && box.w > 0 && box.h > 0 ? [{ ...box, url: v.url }] : [];
+  }) : []);
   return pages.map((p) => {
     const variants = { avif: list(p?.variants?.avif), webp: list(p?.variants?.webp), png: list(p?.variants?.png) };
     if (!variants.png.length) throw new HttpError(400, 'bad_variant'); // the <img> fallback
@@ -364,6 +372,7 @@ function cleanPages(pages, prefix) {
       title,
       section: str(p?.section, 40),
       alt: str(p?.alt, 160) || title,
+      links: links(p?.links),
     };
   });
 }

@@ -1,4 +1,5 @@
 import { createPicture } from './images.js';
+import { createLinkLayer } from './links.js';
 
 const LIGHT = (-28 * Math.PI) / 180; // light comes from front-left
 
@@ -40,6 +41,12 @@ export function createPanel(page, { sizes } = {}) {
   });
   front.prepend(pic);
   front.append(shade);
+  // Links in the PDF page. Off until the page view makes this the focused page.
+  const links = createLinkLayer(page.links, 'plinks');
+  if (links) {
+    links.inert = true;
+    front.append(links);
+  }
 
   const [r, g, b] = [page.paper.r, page.paper.g, page.paper.b];
   front.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
@@ -64,6 +71,10 @@ export function createPanel(page, { sizes } = {}) {
     el,
     pic,
     page,
+    /** Lets the links on this page be clicked (only the focused page of the page view). */
+    setLinksActive(on) {
+      if (links) links.inert = !on;
+    },
     /** Floor-shadow strength 0…1 (hidden while sheets are stacked, to avoid z-fighting). */
     setCast(o) {
       if (Math.abs(o - castOpacity) < 0.004) return;

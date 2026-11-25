@@ -65,6 +65,25 @@ export async function pageSize(doc, index) {
   return { width, height };
 }
 
+/**
+ * The web links on page `index` (0-based) as fractions of the page, from the top-left:
+ * [{ x, y, w, h, url }]. PDF.js only reports addresses it considers safe (http, https, mailto…).
+ */
+export async function pageLinks(doc, index) {
+  const page = await doc.getPage(index + 1);
+  const vp = page.getViewport({ scale: 1 });
+  const out = [];
+  for (const a of await page.getAnnotations()) {
+    if (a.subtype !== 'Link' || !a.url || !a.rect) continue;
+    const [ax, ay, bx, by] = vp.convertToViewportRectangle(a.rect);
+    const x = Math.min(ax, bx), y = Math.min(ay, by);
+    const w = Math.abs(bx - ax), h = Math.abs(by - ay);
+    if (w < 1 || h < 1) continue;
+    out.push({ x: x / vp.width, y: y / vp.height, w: w / vp.width, h: h / vp.height, url: a.url });
+  }
+  return out;
+}
+
 /** Renders page `index` onto a white canvas exactly `widthPx` pixels wide. */
 export async function renderPageTo(doc, index, widthPx) {
   const page = await doc.getPage(index + 1);
