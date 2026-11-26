@@ -202,7 +202,7 @@ async function invite(request, env) {
 }
 
 // --- study library (subjects → sections → entries) ---------------------------------
-// Everyone signed in can read and add; the person who added a thing (or an admin) can change or remove it.
+// Everyone signed in can read it; only admins (ADMIN_USERNAMES) can add, change or remove anything.
 
 /** The whole library, nested, with what this person may edit. It is small, so every change returns it whole. */
 async function libraryPayload(env, user) {
@@ -216,7 +216,7 @@ async function libraryPayload(env, user) {
     ).all(),
   ]);
   const admin = isAdmin(env, user);
-  const can = (ownerId) => admin || ownerId === user.id;
+  const can = () => admin;
   const bySubject = new Map(subjects.results.map((r) => [r.id, { id: r.id, name: r.name, canEdit: can(r.owner_id), sections: [] }]));
   const bySection = new Map();
   for (const r of sections.results) {
@@ -231,7 +231,7 @@ async function libraryPayload(env, user) {
       id: r.id, title: r.title, note: r.note, url: r.url, planned: !!r.planned, by: r.display_name, canEdit: can(r.owner_id),
     });
   }
-  return { subjects: [...bySubject.values()] };
+  return { canEdit: admin, subjects: [...bySubject.values()] };
 }
 
 async function materials(request, env) {
@@ -262,16 +262,22 @@ function libUrl(v) {
 
 const LIB_TABLES = { subjects: 'lib_subjects', sections: 'lib_sections', items: 'lib_items' };
 
-/** A row that exists, and that this person may change. */
-async function libRow(env, user, kind, id) {
+/** The signed-in person, who must be an admin to change the library. */
+async function libAdmin(request, env) {
+  const user = await requireUser(request, env);
+  if (!isAdmin(env, user)) throw new HttpError(403, 'not_allowed');
+  return user;
+}
+
+/** A row that exists. */
+async function libRow(env, kind, id) {
   const row = await env.DB.prepare(`SELECT * FROM ${LIB_TABLES[kind]} WHERE id = ? AND deleted_at IS NULL`).bind(id).first();
   if (!row) throw new HttpError(404, 'not_found');
-  if (row.owner_id !== user.id && !isAdmin(env, user)) throw new HttpError(403, 'not_yours');
   return row;
 }
 
 async function libAdd(request, env, kind) {
-  const user = await requireUser(request, env);
+  const user = await libAdmin(request, env);
   const b = await body(request);
   const id = randomHex(8);
   if (kind === 'subjects') {
@@ -291,8 +297,8 @@ async function libAdd(request, env, kind) {
 }
 
 async function libEdit(request, env, kind, id) {
-  const user = await requireUser(request, env);
-  await libRow(env, user, kind, id);
+  const user = await libAdmin(request, env);
+  await libRow(env, kind, id);
   const b = await body(request);
   if (kind === 'items') {
     await env.DB.prepare('UPDATE lib_items SET title = ?, note = ?, url = ?, planned = ? WHERE id = ?')
@@ -305,8 +311,8 @@ async function libEdit(request, env, kind, id) {
 }
 
 async function libRemove(request, env, kind, id) {
-  const user = await requireUser(request, env);
-  await libRow(env, user, kind, id);
+  const user = await libAdmin(request, env);
+  await libRow(env, kind, id);
   await env.DB.prepare(`UPDATE ${LIB_TABLES[kind]} SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`).bind(id).run();
   await audit(env, user.id, `library-remove-${kind}`);
   return reply(await libraryPayload(env, user));

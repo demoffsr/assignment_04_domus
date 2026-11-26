@@ -11,7 +11,7 @@ const ARROW = '<svg class="lib-arrow" viewBox="0 0 24 24" width="12" height="12"
 const ERRORS = {
   bad_name: 'Give it a name.',
   bad_url: 'That link does not look right. Use a full web address, like https://example.com.',
-  not_yours: 'Only the person who added this can change it.',
+  not_allowed: 'Only the library owner can change this.',
   not_found: 'It is no longer there. Reload the page.',
   not_signed_in: 'Your session expired. Please sign in again.',
   network: 'Cannot reach the server. Try again.',
@@ -40,6 +40,7 @@ export function createLibrary(page, { toast, onHome }) {
   let subjectId = '';
   try { subjectId = localStorage.getItem('tubus.library.subject') || ''; } catch {}
 
+  const canEdit = () => !!data?.canEdit;
   const current = () => data?.subjects.find((s) => s.id === subjectId) || data?.subjects[0] || null;
 
   // --- Talking to the server ------------------------------------------------------------
@@ -92,12 +93,14 @@ export function createLibrary(page, { toast, onHome }) {
       });
       tabsEl.append(b);
     }
-    const add = el('button', 'lib-tab lib-tab--add');
-    add.type = 'button';
-    add.innerHTML = `${PLUS}<span>Subject</span>`;
-    add.setAttribute('aria-label', 'Add a subject');
-    add.addEventListener('click', () => openName({ kind: 'subjects' }));
-    tabsEl.append(add);
+    if (canEdit()) {
+      const add = el('button', 'lib-tab lib-tab--add');
+      add.type = 'button';
+      add.innerHTML = `${PLUS}<span>Subject</span>`;
+      add.setAttribute('aria-label', 'Add a subject');
+      add.addEventListener('click', () => openName({ kind: 'subjects' }));
+      tabsEl.append(add);
+    }
     if (shown?.canEdit && !searching) tabsEl.append(iconButton('Rename or delete this subject', PENCIL, () => openName({ kind: 'subjects', row: shown }), 'lib-tab-edit'));
   }
 
@@ -118,7 +121,6 @@ export function createLibrary(page, { toast, onHome }) {
     if (item.planned) head.append(el('span', 'lib-planned', 'Planned'));
     text.append(head);
     if (item.note) text.append(el('div', 'lib-item-note dim', item.note));
-    li.title = `Added by ${item.by}`;
     li.append(text);
     if (item.canEdit) li.append(iconButton(`Edit ${item.title}`, PENCIL, () => openItem({ section, row: item })));
     return li;
@@ -131,7 +133,7 @@ export function createLibrary(page, { toast, onHome }) {
     title.append(el('span', 'lib-section-name', section.name), el('span', 'count', items.length));
     head.append(title);
     const actions = el('div', 'lib-section-actions');
-    if (!subjectName) {
+    if (!subjectName && canEdit()) {
       if (section.canEdit) actions.append(iconButton(`Rename or delete ${section.name}`, PENCIL, () => openName({ kind: 'sections', row: section })));
       actions.append(iconButton(`Add to ${section.name}`, PLUS, () => openItem({ section })));
     }
@@ -143,10 +145,14 @@ export function createLibrary(page, { toast, onHome }) {
       list.append(...items.map((item) => itemRow(item, section)));
       box.append(list);
     } else {
-      const empty = el('button', 'lib-section-empty dim', 'Nothing here yet. Add the first one.');
-      empty.type = 'button';
-      empty.addEventListener('click', () => openItem({ section }));
-      box.append(empty);
+      if (canEdit()) {
+        const empty = el('button', 'lib-section-empty dim', 'Nothing here yet. Add the first one.');
+        empty.type = 'button';
+        empty.addEventListener('click', () => openItem({ section }));
+        box.append(empty);
+      } else {
+        box.append(el('p', 'lib-section-empty dim', 'Nothing here yet.'));
+      }
     }
     return box;
   }
@@ -185,16 +191,20 @@ export function createLibrary(page, { toast, onHome }) {
     }
     const subject = current();
     if (!subject) {
-      bodyEl.append(message('Nothing here yet. Start with a subject, like the name of a course.', 'Add a subject', () => openName({ kind: 'subjects' })));
+      bodyEl.append(canEdit()
+        ? message('Nothing here yet. Start with a subject, like the name of a course.', 'Add a subject', () => openName({ kind: 'subjects' }))
+        : message('Nothing here yet.'));
       return;
     }
     const cols = el('div', 'lib-cols');
     cols.append(...subject.sections.map((section) => sectionBlock(section)));
-    const add = el('button', 'lib-add-section');
-    add.type = 'button';
-    add.innerHTML = `${PLUS}<span>Add a section</span>`;
-    add.addEventListener('click', () => openName({ kind: 'sections', subject }));
-    cols.append(add);
+    if (canEdit()) {
+      const add = el('button', 'lib-add-section');
+      add.type = 'button';
+      add.innerHTML = `${PLUS}<span>Add a section</span>`;
+      add.addEventListener('click', () => openName({ kind: 'sections', subject }));
+      cols.append(add);
+    }
     bodyEl.append(cols);
   }
 
